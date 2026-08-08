@@ -19,19 +19,29 @@ import '../../features/reports/presentation/screens/reports_screen.dart';
 import '../../features/search/presentation/screens/search_screen.dart';
 import '../../features/settings/presentation/screens/settings_screen.dart';
 import '../../features/sleep/presentation/screens/sleep_screen.dart';
+import '../../features/trackers/presentation/screens/trackers_screen.dart';
 import '../../features/vaccination/presentation/screens/vaccination_screen.dart';
 import '../../screens/onboarding_screen.dart';
 import '../../screens/splash_screen.dart';
+import 'main_navigation_shell.dart';
 import 'route_paths.dart';
 
 /// Application routing configuration (SAD Section 7.2; SRS Section 10.5.6,
 /// Navigation), built with `go_router`.
 ///
-/// Every route currently resolves to a [PlaceholderScreen]-backed screen
-/// (see `lib/widgets/placeholder_screen.dart`). No authentication-gated
-/// redirect logic is applied yet — that belongs to the Authentication
-/// feature (SAD Section 8.2) and is intentionally out of scope for the
-/// application foundation.
+/// The four main sections — Home, Trackers, Memories, Profile — live
+/// inside a [StatefulShellRoute.indexedStack] wrapped by
+/// [MainNavigationShell], so the persistent pastel bottom bar (with the
+/// elevated Luma button) stays visible while switching between them and
+/// each tab keeps its own navigation/scroll state. Every other route
+/// (deep/detail screens such as Cry Analyzer, Feeding, Sleep, Diaper,
+/// Growth, Vaccinations, Milestones, AI Assistant/Luma, Family Sharing,
+/// ...) is registered as a top-level route OUTSIDE the shell, so it
+/// renders full-screen without the bottom bar.
+///
+/// No authentication-gated redirect logic is applied yet — that belongs to
+/// the Authentication feature (SAD Section 8.2) and is intentionally out
+/// of scope for the application foundation.
 final goRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: RoutePaths.splash,
@@ -58,19 +68,50 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const RegisterScreen(),
       ),
       GoRoute(
-        path: RoutePaths.dashboard,
-        name: RouteNames.dashboard,
-        builder: (context, state) => const DashboardScreen(),
-      ),
-      GoRoute(
         path: RoutePaths.babyRegistration,
         name: RouteNames.babyRegistration,
         builder: (context, state) => const BabyRegistrationScreen(),
       ),
-      GoRoute(
-        path: RoutePaths.babyProfile,
-        name: RouteNames.babyProfile,
-        builder: (context, state) => const BabyProfileScreen(),
+      StatefulShellRoute.indexedStack(
+        builder: (context, state, navigationShell) => MainNavigationShell(navigationShell: navigationShell),
+        branches: [
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: RoutePaths.dashboard,
+                name: RouteNames.dashboard,
+                builder: (context, state) => const DashboardScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: RoutePaths.trackers,
+                name: RouteNames.trackers,
+                builder: (context, state) => const TrackersScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: RoutePaths.gallery,
+                name: RouteNames.gallery,
+                builder: (context, state) => const GalleryScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: RoutePaths.babyProfile,
+                name: RouteNames.babyProfile,
+                builder: (context, state) => const BabyProfileScreen(),
+              ),
+            ],
+          ),
+        ],
       ),
       GoRoute(
         path: RoutePaths.cryAnalyzer,
@@ -106,11 +147,6 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         path: RoutePaths.milestones,
         name: RouteNames.milestones,
         builder: (context, state) => const MilestonesScreen(),
-      ),
-      GoRoute(
-        path: RoutePaths.gallery,
-        name: RouteNames.gallery,
-        builder: (context, state) => const GalleryScreen(),
       ),
       GoRoute(
         path: RoutePaths.reports,

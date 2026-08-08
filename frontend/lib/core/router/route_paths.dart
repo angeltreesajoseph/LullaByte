@@ -16,6 +16,7 @@ class RoutePaths {
 
   // Dashboard (SRS Section 10.5)
   static const String dashboard = '/dashboard';
+  static const String trackers = '/trackers';
 
   // Baby Management (SRS Section 10.3, 10.4, 10.13)
   static const String babyRegistration = '/baby/register';
@@ -48,6 +49,7 @@ class RouteNames {
   static const String login = 'login';
   static const String register = 'register';
   static const String dashboard = 'dashboard';
+  static const String trackers = 'trackers';
   static const String babyRegistration = 'babyRegistration';
   static const String babyProfile = 'babyProfile';
   static const String cryAnalyzer = 'cryAnalyzer';

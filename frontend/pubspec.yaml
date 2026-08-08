@@ -58,6 +58,8 @@ dependencies:
   intl: ^0.20.3
   logger: ^2.7.0
   equatable: ^2.1.0
+  local_auth: ^3.0.2
+  google_fonts: ^8.2.0
 
 dev_dependencies:
   flutter_test:
