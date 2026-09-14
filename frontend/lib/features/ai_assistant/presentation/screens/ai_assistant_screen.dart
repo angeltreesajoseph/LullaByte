@@ -12,13 +12,14 @@ import '../../application/assistant_providers.dart';
 import '../../application/chat_controller.dart';
 import '../../domain/entities/assistant_mode.dart';
 import '../../domain/entities/chat_message.dart';
+import '../../../baby_management/application/baby_profile_store.dart';
 
 const _suggestedQuestions = <String>[
   'Why is my baby crying?',
-  'Is Lily sleeping enough?',
+  'Is my baby sleeping enough?',
   'When is the next vaccine due?',
   'How many diapers are normal?',
-  'What milestones should Lily have?',
+  'What milestones should my baby have?',
 ];
 
 /// AI Assistant screen (SRS Section 10.15) — a single hybrid Offline +
@@ -336,7 +337,7 @@ class _AssistantHeaderCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  "Ask anything about Lily's care",
+                  "Ask anything about ${BabyProfileStore.name}'s care",
                   style: GoogleFonts.nunito(fontSize: 12.5, color: AuthPalette.textMuted),
                 ),
               ],
@@ -398,7 +399,7 @@ class _ConnectivityBanner extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              "Advanced AI is unavailable. Using Lily's local data.",
+              "Advanced AI is unavailable. Using ${BabyProfileStore.name}'s local data.",
               style: GoogleFonts.nunito(fontSize: 11.5, color: AuthPalette.textMuted, height: 1.35),
             ),
           ),
@@ -693,7 +694,7 @@ class _MessageComposer extends StatelessWidget {
               style: GoogleFonts.nunito(fontSize: 14, color: AuthPalette.textDark),
               cursorColor: AuthPalette.softCoral,
               decoration: InputDecoration(
-                hintText: "Ask about Lily's care...",
+                hintText: "Ask about ${BabyProfileStore.name}'s care...",
                 hintStyle: GoogleFonts.nunito(fontSize: 13.5, color: AuthPalette.textMuted.withValues(alpha: 0.7)),
                 filled: true,
                 fillColor: AuthPalette.blushPink.withValues(alpha: 0.22),

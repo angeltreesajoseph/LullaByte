@@ -5,8 +5,12 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:dio/dio.dart';
 
 import '../../../../core/router/route_paths.dart';
+import '../../../../core/config/app_config.dart';
+import '../../../../core/auth/firebase_auth_service.dart';
+import '../../data/baby_api.dart';
 import '../../../authentication/presentation/widgets/auth_background.dart';
 import '../../../authentication/presentation/widgets/auth_form_controls.dart';
 import '../../../authentication/presentation/widgets/auth_palette.dart';
@@ -216,7 +220,22 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
       // Stores the entered details locally and simulates the save
       // round-trip pending the Baby Management data/domain layer
       // integration — mock/local state only, no backend or Firebase.
-      await Future.delayed(const Duration(milliseconds: 1200));
+      final user = FirebaseAuthService().currentUser;
+      if (user == null) throw StateError('Please sign in again before saving the baby profile.');
+      final dio = Dio(BaseOptions(baseUrl: AppConfig.apiBaseUrl));
+      final token = await user.getIdToken();
+      if (token != null) dio.options.headers['Authorization'] = 'Bearer $token';
+      await BabyApi(dio).create(
+        name: _babyNameController.text,
+        birthDate: _dateOfBirth,
+        gender: _gender?.name,
+        birthWeightKg: double.tryParse(_weightController.text.trim()),
+        birthLengthCm: double.tryParse(_heightController.text.trim()),
+        bloodGroup: _bloodGroup,
+        allergies: _allergyController.text.trim().isEmpty ? null : _allergyController.text.trim(),
+        pediatrician: _pediatricianController.text.trim().isEmpty ? null : _pediatricianController.text.trim(),
+        hospital: _hospitalController.text.trim().isEmpty ? null : _hospitalController.text.trim(),
+      );
       if (!mounted) return;
       context.go(RoutePaths.dashboard);
     } catch (_) {

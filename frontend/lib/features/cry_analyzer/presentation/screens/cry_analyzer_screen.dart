@@ -1,9 +1,13 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:record/record.dart';
 
 import '../../../../core/router/route_paths.dart';
 import '../../../authentication/presentation/widgets/auth_background.dart';
@@ -18,13 +22,8 @@ import '../../../authentication/presentation/widgets/auth_palette.dart';
 /// directly from `features/authentication/presentation/widgets/`
 /// (read-only reuse; those files are not modified).
 ///
-/// Recording, the live waveform, and analysis are entirely simulated with
-/// realistic sample data and timed delays — there is no microphone
-/// capture, no file access, no backend call, and no real AI model here.
-/// The recording/upload → analyzing → result state machine is fully
-/// functional at the UI/state level so it is ready to be wired to the
-/// real AI Prediction Service (SAD Section 7.7) later without any UI
-/// change.
+/// Audio selection and microphone capture are real. Valid audio stops at an
+/// "audio ready" boundary; no backend call or AI model is connected yet.
 class CryAnalyzerScreen extends StatefulWidget {
   const CryAnalyzerScreen({super.key});
 
@@ -32,7 +31,8 @@ class CryAnalyzerScreen extends StatefulWidget {
   State<CryAnalyzerScreen> createState() => _CryAnalyzerScreenState();
 }
 
-class _CryAnalyzerScreenState extends State<CryAnalyzerScreen> with TickerProviderStateMixin {
+class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
+    with TickerProviderStateMixin {
   late final AnimationController _entranceController;
   late final Animation<double> _contentFade;
   late final Animation<Offset> _contentSlide;
@@ -43,11 +43,22 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen> with TickerProvid
   _AnalyzerState _state = _AnalyzerState.idle;
   int _recordingSeconds = 0;
   Timer? _recordingTimer;
+  final AudioRecorder _audioRecorder = AudioRecorder();
+  DateTime? _recordingStartedAt;
+  String? _audioPath;
+  bool _ownsAudioFile = false;
+
+  static const _supportedExtensions = <String>{'wav', 'mp3', 'm4a'};
+  static const _minimumRecordingDuration = Duration(milliseconds: 700);
 
   static const _history = <_HistoryEntry>[
     _HistoryEntry(result: 'Hungry', confidence: 86, time: 'Today, 2:15 PM'),
     _HistoryEntry(result: 'Tired', confidence: 78, time: 'Today, 11:40 AM'),
-    _HistoryEntry(result: 'Discomfort', confidence: 65, time: 'Yesterday, 9:20 PM'),
+    _HistoryEntry(
+      result: 'Discomfort',
+      confidence: 65,
+      time: 'Yesterday, 9:20 PM',
+    ),
   ];
 
   @override
@@ -57,10 +68,17 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen> with TickerProvid
       vsync: this,
       duration: const Duration(milliseconds: 600),
     )..forward();
-    _contentFade = CurvedAnimation(parent: _entranceController, curve: Curves.easeOut);
-    _contentSlide = Tween<Offset>(begin: const Offset(0, 0.04), end: Offset.zero).animate(
-      CurvedAnimation(parent: _entranceController, curve: Curves.easeOutCubic),
+    _contentFade = CurvedAnimation(
+      parent: _entranceController,
+      curve: Curves.easeOut,
     );
+    _contentSlide =
+        Tween<Offset>(begin: const Offset(0, 0.04), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _entranceController,
+            curve: Curves.easeOutCubic,
+          ),
+        );
 
     _breatheController = AnimationController(
       vsync: this,
@@ -79,15 +97,18 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen> with TickerProvid
     _breatheController.dispose();
     _pulseController.dispose();
     _recordingTimer?.cancel();
+    unawaited(_audioRecorder.dispose());
     super.dispose();
   }
 
   String get _statusText => switch (_state) {
-        _AnalyzerState.idle => 'Ready to listen',
-        _AnalyzerState.recording => 'Listening…',
-        _AnalyzerState.analyzing => 'Analyzing…',
-        _AnalyzerState.resultReady => 'Result ready',
-      };
+    _AnalyzerState.idle => 'Ready to listen',
+    _AnalyzerState.recording => 'Listening…',
+    _AnalyzerState.analyzing => 'Analyzing audio…',
+    _AnalyzerState.audioReady => 'Audio ready for analysis',
+    _AnalyzerState.error => 'Audio input error',
+    _AnalyzerState.resultReady => 'Result ready',
+  };
 
   String _formatDuration(int seconds) {
     final minutes = seconds ~/ 60;
@@ -102,10 +123,15 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen> with TickerProvid
         SnackBar(
           behavior: SnackBarBehavior.floating,
           backgroundColor: AuthPalette.textDark,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
           content: Text(
             message,
-            style: GoogleFonts.nunito(color: Colors.white, fontWeight: FontWeight.w600),
+            style: GoogleFonts.nunito(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       );
@@ -114,47 +140,157 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen> with TickerProvid
   Future<void> _handleMicTap() async {
     switch (_state) {
       case _AnalyzerState.idle:
+      case _AnalyzerState.audioReady:
+      case _AnalyzerState.error:
       case _AnalyzerState.resultReady:
-        _startRecording();
+        await _startRecording();
       case _AnalyzerState.recording:
-        await _stopRecordingAndAnalyze();
+        await _stopRecording();
       case _AnalyzerState.analyzing:
         break;
     }
   }
 
-  void _startRecording() {
-    _recordingTimer?.cancel();
-    setState(() {
-      _state = _AnalyzerState.recording;
-      _recordingSeconds = 0;
-    });
-    _recordingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      setState(() => _recordingSeconds++);
-    });
+  Future<void> _startRecording() async {
+    try {
+      final hasPermission = await _audioRecorder.hasPermission();
+      if (!hasPermission) {
+        _setInputError('Microphone permission is required to record audio.');
+        return;
+      }
+
+      await _discardOwnedAudioFile();
+      final directory = await getTemporaryDirectory();
+      final path =
+          '${directory.path}${Platform.pathSeparator}lullabyte_cry_${DateTime.now().millisecondsSinceEpoch}.m4a';
+
+      await _audioRecorder.start(
+        const RecordConfig(encoder: AudioEncoder.aacLc, numChannels: 1),
+        path: path,
+      );
+      if (!mounted) return;
+
+      _recordingTimer?.cancel();
+      setState(() {
+        _state = _AnalyzerState.recording;
+        _recordingSeconds = 0;
+        _recordingStartedAt = DateTime.now();
+        _audioPath = path;
+        _ownsAudioFile = true;
+      });
+      _recordingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() => _recordingSeconds++);
+      });
+    } catch (_) {
+      _setInputError('Unable to start recording. Please try again.');
+    }
   }
 
-  Future<void> _stopRecordingAndAnalyze() async {
+  Future<void> _stopRecording() async {
     _recordingTimer?.cancel();
-    setState(() => _state = _AnalyzerState.analyzing);
-    // Simulated analysis pipeline — no real audio processing or AI model
-    // call yet; see class documentation above.
-    await Future.delayed(const Duration(milliseconds: 1600));
-    if (!mounted) return;
-    setState(() => _state = _AnalyzerState.resultReady);
+    final elapsed = _recordingStartedAt == null
+        ? Duration.zero
+        : DateTime.now().difference(_recordingStartedAt!);
+
+    try {
+      final stoppedPath = await _audioRecorder.stop();
+      _recordingStartedAt = null;
+      final path = stoppedPath ?? _audioPath;
+      if (elapsed < _minimumRecordingDuration ||
+          !await _isValidAudioFile(path)) {
+        await _discardOwnedAudioFile();
+        _setInputError(
+          'No audio was recorded. Please record a baby cry and try again.',
+        );
+        return;
+      }
+      _audioPath = path;
+      await _markAudioReady();
+    } catch (_) {
+      _recordingStartedAt = null;
+      await _discardOwnedAudioFile();
+      _setInputError('Unable to save the recording. Please try again.');
+    }
   }
 
   Future<void> _handleUpload() async {
-    if (_state == _AnalyzerState.recording || _state == _AnalyzerState.analyzing) return;
-    _showToast('Selected cry_recording.wav');
-    setState(() => _state = _AnalyzerState.analyzing);
-    await Future.delayed(const Duration(milliseconds: 1600));
-    if (!mounted) return;
-    setState(() => _state = _AnalyzerState.resultReady);
+    if (_state == _AnalyzerState.recording ||
+        _state == _AnalyzerState.analyzing) {
+      return;
+    }
+    try {
+      final picked = await FilePicker.pickFile(
+        type: FileType.custom,
+        allowedExtensions: _supportedExtensions.toList(),
+      );
+      if (picked == null || !mounted) return;
+
+      final path = picked.path;
+      final extension = _extensionOf(picked.name);
+      if (!_supportedExtensions.contains(extension)) {
+        _setInputError('Please select a WAV, MP3, or M4A audio file.');
+        return;
+      }
+      if (!await _isValidAudioFile(path)) {
+        _setInputError('Unable to read this audio file.');
+        return;
+      }
+
+      await _discardOwnedAudioFile();
+      _audioPath = path;
+      _ownsAudioFile = false;
+      await _markAudioReady();
+    } catch (_) {
+      _setInputError('Unable to open this audio file. Please try again.');
+    }
   }
 
-  void _handleDelete() {
+  Future<void> _markAudioReady() async {
+    if (!mounted) return;
+    setState(() => _state = _AnalyzerState.analyzing);
+    // Deliberate integration boundary: a future ML service starts here.
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    if (!mounted) return;
+    setState(() => _state = _AnalyzerState.audioReady);
+  }
+
+  Future<bool> _isValidAudioFile(String? path) async {
+    if (path == null || path.trim().isEmpty) return false;
+    if (!_supportedExtensions.contains(_extensionOf(path))) return false;
+    final file = File(path);
+    if (!await file.exists()) return false;
+    return await file.length() > 0;
+  }
+
+  String _extensionOf(String path) {
+    final separator = path.lastIndexOf('.');
+    return separator < 0 ? '' : path.substring(separator + 1).toLowerCase();
+  }
+
+  void _setInputError(String message) {
+    if (!mounted) return;
+    setState(() {
+      _state = _AnalyzerState.error;
+      _recordingSeconds = 0;
+      _recordingStartedAt = null;
+    });
+    _showToast(message);
+  }
+
+  Future<void> _discardOwnedAudioFile() async {
+    final path = _audioPath;
+    if (_ownsAudioFile && path != null) {
+      final file = File(path);
+      if (await file.exists()) await file.delete();
+    }
+    _audioPath = null;
+    _ownsAudioFile = false;
+  }
+
+  Future<void> _handleDelete() async {
     _recordingTimer?.cancel();
+    await _discardOwnedAudioFile();
+    if (!mounted) return;
     setState(() {
       _state = _AnalyzerState.idle;
       _recordingSeconds = 0;
@@ -162,7 +298,7 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen> with TickerProvid
   }
 
   void _handlePlay() {
-    _showToast('Playing recording…');
+    _showToast('Audio is ready. Playback will be connected with analysis.');
   }
 
   void _showHowItWorksSheet() {
@@ -176,7 +312,9 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen> with TickerProvid
 
   @override
   Widget build(BuildContext context) {
-    final isBusy = _state == _AnalyzerState.recording || _state == _AnalyzerState.analyzing;
+    final isBusy =
+        _state == _AnalyzerState.recording ||
+        _state == _AnalyzerState.analyzing;
 
     return Scaffold(
       backgroundColor: AuthPalette.warmCream,
@@ -199,7 +337,10 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen> with TickerProvid
                         children: [
                           Row(
                             children: [
-                              AuthBackButton(onPressed: () => context.go(RoutePaths.dashboard)),
+                              AuthBackButton(
+                                onPressed: () =>
+                                    context.go(RoutePaths.dashboard),
+                              ),
                               const Spacer(),
                             ],
                           ),
@@ -243,6 +384,7 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen> with TickerProvid
                           ),
                           if (_state == _AnalyzerState.recording ||
                               _state == _AnalyzerState.analyzing ||
+                              _state == _AnalyzerState.audioReady ||
                               _state == _AnalyzerState.resultReady) ...[
                             const SizedBox(height: 14),
                             _AudioControlsRow(
@@ -252,7 +394,8 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen> with TickerProvid
                               onDelete: _handleDelete,
                             ),
                           ],
-                          if (_state == _AnalyzerState.idle) ...[
+                          if (_state == _AnalyzerState.idle ||
+                              _state == _AnalyzerState.error) ...[
                             const SizedBox(height: 16),
                             _UploadCard(enabled: !isBusy, onTap: _handleUpload),
                           ],
@@ -261,14 +404,19 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen> with TickerProvid
                             child: _state == _AnalyzerState.resultReady
                                 ? Column(
                                     key: const ValueKey('result'),
-                                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
                                     children: [
                                       const SizedBox(height: 22),
                                       const _AnalysisResultCard(),
                                       const SizedBox(height: 22),
-                                      _SectionHeading(title: 'Recommended Actions'),
+                                      _SectionHeading(
+                                        title: 'Recommended Actions',
+                                      ),
                                       const SizedBox(height: 10),
-                                      _RecommendedActionsGrid(onTap: _showToast),
+                                      _RecommendedActionsGrid(
+                                        onTap: _showToast,
+                                      ),
                                     ],
                                   )
                                 : const SizedBox(key: ValueKey('no-result')),
@@ -291,7 +439,14 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen> with TickerProvid
   }
 }
 
-enum _AnalyzerState { idle, recording, analyzing, resultReady }
+enum _AnalyzerState {
+  idle,
+  recording,
+  analyzing,
+  audioReady,
+  error,
+  resultReady,
+}
 
 /// Cry Analyzer-local "stars and clouds" ambient decoration — a fresh,
 /// screen-local implementation (not imported from Dashboard, which keeps
@@ -304,22 +459,60 @@ class _CryFloatingDecor extends StatefulWidget {
   State<_CryFloatingDecor> createState() => _CryFloatingDecorState();
 }
 
-class _CryFloatingDecorState extends State<_CryFloatingDecor> with SingleTickerProviderStateMixin {
+class _CryFloatingDecorState extends State<_CryFloatingDecor>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
 
   static const _specs = <_DecorSpec>[
-    _DecorSpec(icon: Icons.star_rounded, top: 0.02, left: 0.85, size: 12, color: AuthPalette.softCoral, phase: 0.0),
-    _DecorSpec(icon: Icons.cloud_rounded, top: 0.05, left: 0.10, size: 22, color: AuthPalette.powderBlue, phase: 0.5),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.15, left: 0.05, size: 10, color: AuthPalette.mint, phase: 0.25),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.35, left: 0.92, size: 11, color: AuthPalette.lavenderMist, phase: 0.7),
-    _DecorSpec(icon: Icons.cloud_rounded, top: 0.55, left: 0.88, size: 18, color: AuthPalette.blushPink, phase: 0.15),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.02,
+      left: 0.85,
+      size: 12,
+      color: AuthPalette.softCoral,
+      phase: 0.0,
+    ),
+    _DecorSpec(
+      icon: Icons.cloud_rounded,
+      top: 0.05,
+      left: 0.10,
+      size: 22,
+      color: AuthPalette.powderBlue,
+      phase: 0.5,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.15,
+      left: 0.05,
+      size: 10,
+      color: AuthPalette.mint,
+      phase: 0.25,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.35,
+      left: 0.92,
+      size: 11,
+      color: AuthPalette.lavenderMist,
+      phase: 0.7,
+    ),
+    _DecorSpec(
+      icon: Icons.cloud_rounded,
+      top: 0.55,
+      left: 0.88,
+      size: 18,
+      color: AuthPalette.blushPink,
+      phase: 0.15,
+    ),
   ];
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(seconds: 4))
-      ..repeat(reverse: true);
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 4),
+    )..repeat(reverse: true);
   }
 
   @override
@@ -342,7 +535,12 @@ class _CryFloatingDecorState extends State<_CryFloatingDecor> with SingleTickerP
                   child: AnimatedBuilder(
                     animation: _controller,
                     builder: (context, child) {
-                      final t = (math.sin((_controller.value + spec.phase) * math.pi * 2) + 1) / 2;
+                      final t =
+                          (math.sin(
+                                (_controller.value + spec.phase) * math.pi * 2,
+                              ) +
+                              1) /
+                          2;
                       return Opacity(opacity: 0.07 + (t * 0.09), child: child);
                     },
                     child: Icon(spec.icon, size: spec.size, color: spec.color),
@@ -392,7 +590,11 @@ class _InfoButton extends StatelessWidget {
           onTap: onTap,
           child: const Padding(
             padding: EdgeInsets.all(8),
-            child: Icon(Icons.info_outline_rounded, color: AuthPalette.textDark, size: 20),
+            child: Icon(
+              Icons.info_outline_rounded,
+              color: AuthPalette.textDark,
+              size: 20,
+            ),
           ),
         ),
       ),
@@ -411,7 +613,11 @@ class _SectionHeading extends StatelessWidget {
       padding: const EdgeInsets.only(left: 4),
       child: Text(
         title,
-        style: GoogleFonts.quicksand(fontSize: 17, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+        style: GoogleFonts.quicksand(
+          fontSize: 17,
+          fontWeight: FontWeight.w700,
+          color: AuthPalette.textDark,
+        ),
       ),
     );
   }
@@ -451,7 +657,9 @@ class _HeroCard extends StatelessWidget {
           ],
         ),
         borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: AuthPalette.lavenderMist.withValues(alpha: 0.5)),
+        border: Border.all(
+          color: AuthPalette.lavenderMist.withValues(alpha: 0.5),
+        ),
         boxShadow: [
           BoxShadow(
             color: AuthPalette.softCoral.withValues(alpha: 0.14),
@@ -522,13 +730,15 @@ class _MicButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final isRecording = state == _AnalyzerState.recording;
     final isAnalyzing = state == _AnalyzerState.analyzing;
-    final isResult = state == _AnalyzerState.resultReady;
+    final isResult =
+        state == _AnalyzerState.audioReady ||
+        state == _AnalyzerState.resultReady;
 
     final gradientColors = isResult
         ? const [AuthPalette.mint, AuthPalette.powderBlue]
         : isRecording
-            ? const [AuthPalette.softCoral, Color(0xFFEF6FA0)]
-            : const [AuthPalette.softCoral, AuthPalette.lavenderMist];
+        ? const [AuthPalette.softCoral, Color(0xFFEF6FA0)]
+        : const [AuthPalette.softCoral, AuthPalette.lavenderMist];
 
     return Semantics(
       button: true,
@@ -580,7 +790,9 @@ class _MicButton extends StatelessWidget {
                       ),
                     ],
                   ),
-                  child: Center(child: _centerIcon(isRecording, isAnalyzing, isResult)),
+                  child: Center(
+                    child: _centerIcon(isRecording, isAnalyzing, isResult),
+                  ),
                 ),
               ),
             ],
@@ -637,15 +849,18 @@ class _LiveWaveform extends StatefulWidget {
   State<_LiveWaveform> createState() => _LiveWaveformState();
 }
 
-class _LiveWaveformState extends State<_LiveWaveform> with SingleTickerProviderStateMixin {
+class _LiveWaveformState extends State<_LiveWaveform>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   static const _barCount = 28;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 1100))
-      ..repeat();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1100),
+    )..repeat();
   }
 
   @override
@@ -683,7 +898,11 @@ class _LiveWaveformState extends State<_LiveWaveform> with SingleTickerProviderS
 }
 
 class _WaveBar extends StatelessWidget {
-  const _WaveBar({required this.t, required this.index, required this.amplitude});
+  const _WaveBar({
+    required this.t,
+    required this.index,
+    required this.amplitude,
+  });
 
   final double t;
   final int index;
@@ -734,7 +953,9 @@ class _AudioControlsRow extends StatelessWidget {
       );
     }
 
-    final canInteract = state == _AnalyzerState.resultReady;
+    final canInteract =
+        state == _AnalyzerState.audioReady ||
+        state == _AnalyzerState.resultReady;
     return Row(
       children: [
         Expanded(
@@ -784,7 +1005,11 @@ class _UploadCard extends StatelessWidget {
                   color: AuthPalette.powderBlue.withValues(alpha: 0.3),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.upload_file_rounded, color: AuthPalette.textDark, size: 22),
+                child: const Icon(
+                  Icons.upload_file_rounded,
+                  color: AuthPalette.textDark,
+                  size: 22,
+                ),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -793,16 +1018,26 @@ class _UploadCard extends StatelessWidget {
                   children: [
                     Text(
                       'Upload audio file',
-                      style: GoogleFonts.nunito(fontSize: 14.5, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+                      style: GoogleFonts.nunito(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w700,
+                        color: AuthPalette.textDark,
+                      ),
                     ),
                     Text(
                       'Supported formats: wav, mp3, m4a',
-                      style: GoogleFonts.nunito(fontSize: 12, color: AuthPalette.textMuted),
+                      style: GoogleFonts.nunito(
+                        fontSize: 12,
+                        color: AuthPalette.textMuted,
+                      ),
                     ),
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right_rounded, color: AuthPalette.textMuted),
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: AuthPalette.textMuted,
+              ),
             ],
           ),
         ),
@@ -815,9 +1050,21 @@ class _AnalysisResultCard extends StatelessWidget {
   const _AnalysisResultCard();
 
   static const _breakdown = <_ConfidenceEntry>[
-    _ConfidenceEntry(label: 'Hungry', percent: 86, color: AuthPalette.softCoral),
-    _ConfidenceEntry(label: 'Tired', percent: 10, color: AuthPalette.powderBlue),
-    _ConfidenceEntry(label: 'Discomfort', percent: 4, color: AuthPalette.lavenderMist),
+    _ConfidenceEntry(
+      label: 'Hungry',
+      percent: 86,
+      color: AuthPalette.softCoral,
+    ),
+    _ConfidenceEntry(
+      label: 'Tired',
+      percent: 10,
+      color: AuthPalette.powderBlue,
+    ),
+    _ConfidenceEntry(
+      label: 'Discomfort',
+      percent: 4,
+      color: AuthPalette.lavenderMist,
+    ),
   ];
 
   @override
@@ -835,7 +1082,11 @@ class _AnalysisResultCard extends StatelessWidget {
                   color: AuthPalette.softCoral.withValues(alpha: 0.28),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.local_drink_rounded, color: AuthPalette.textDark, size: 26),
+                child: const Icon(
+                  Icons.local_drink_rounded,
+                  color: AuthPalette.textDark,
+                  size: 26,
+                ),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -844,7 +1095,10 @@ class _AnalysisResultCard extends StatelessWidget {
                   children: [
                     Text(
                       'Likely reason',
-                      style: GoogleFonts.nunito(fontSize: 12, color: AuthPalette.textMuted),
+                      style: GoogleFonts.nunito(
+                        fontSize: 12,
+                        color: AuthPalette.textMuted,
+                      ),
                     ),
                     Text(
                       'Hungry',
@@ -858,14 +1112,21 @@ class _AnalysisResultCard extends StatelessWidget {
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: AuthPalette.mint.withValues(alpha: 0.3),
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Text(
                   '86%',
-                  style: GoogleFonts.nunito(fontSize: 14, fontWeight: FontWeight.w800, color: AuthPalette.textDark),
+                  style: GoogleFonts.nunito(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: AuthPalette.textDark,
+                  ),
                 ),
               ),
             ],
@@ -878,12 +1139,20 @@ class _AnalysisResultCard extends StatelessWidget {
           const SizedBox(height: 4),
           Row(
             children: [
-              const Icon(Icons.shield_outlined, size: 14, color: AuthPalette.textMuted),
+              const Icon(
+                Icons.shield_outlined,
+                size: 14,
+                color: AuthPalette.textMuted,
+              ),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
                   'This is a gentle guide, not a diagnosis. Trust your instincts.',
-                  style: GoogleFonts.nunito(fontSize: 11, color: AuthPalette.textMuted, fontStyle: FontStyle.italic),
+                  style: GoogleFonts.nunito(
+                    fontSize: 11,
+                    color: AuthPalette.textMuted,
+                    fontStyle: FontStyle.italic,
+                  ),
                 ),
               ),
             ],
@@ -895,7 +1164,11 @@ class _AnalysisResultCard extends StatelessWidget {
 }
 
 class _ConfidenceEntry {
-  const _ConfidenceEntry({required this.label, required this.percent, required this.color});
+  const _ConfidenceEntry({
+    required this.label,
+    required this.percent,
+    required this.color,
+  });
 
   final String label;
   final int percent;
@@ -917,12 +1190,20 @@ class _ConfidenceRow extends StatelessWidget {
             Expanded(
               child: Text(
                 entry.label,
-                style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+                style: GoogleFonts.nunito(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: AuthPalette.textDark,
+                ),
               ),
             ),
             Text(
               '${entry.percent}%',
-              style: GoogleFonts.nunito(fontSize: 12.5, fontWeight: FontWeight.w800, color: AuthPalette.textMuted),
+              style: GoogleFonts.nunito(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w800,
+                color: AuthPalette.textMuted,
+              ),
             ),
           ],
         ),
@@ -931,7 +1212,10 @@ class _ConfidenceRow extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
           child: Stack(
             children: [
-              Container(height: 9, color: AuthPalette.lavenderMist.withValues(alpha: 0.25)),
+              Container(
+                height: 9,
+                color: AuthPalette.lavenderMist.withValues(alpha: 0.25),
+              ),
               TweenAnimationBuilder<double>(
                 tween: Tween(begin: 0, end: entry.percent / 100),
                 duration: const Duration(milliseconds: 800),
@@ -957,10 +1241,26 @@ class _RecommendedActionsGrid extends StatelessWidget {
   final ValueChanged<String> onTap;
 
   static const _actions = <_RecommendedAction>[
-    _RecommendedAction(label: 'Offer feeding', icon: Icons.local_drink_rounded, color: AuthPalette.powderBlue),
-    _RecommendedAction(label: 'Burp baby', icon: Icons.air_rounded, color: AuthPalette.mint),
-    _RecommendedAction(label: 'Check diaper', icon: Icons.child_care_rounded, color: AuthPalette.lavenderMist),
-    _RecommendedAction(label: 'Try soothing', icon: Icons.spa_rounded, color: AuthPalette.softCoral),
+    _RecommendedAction(
+      label: 'Offer feeding',
+      icon: Icons.local_drink_rounded,
+      color: AuthPalette.powderBlue,
+    ),
+    _RecommendedAction(
+      label: 'Burp baby',
+      icon: Icons.air_rounded,
+      color: AuthPalette.mint,
+    ),
+    _RecommendedAction(
+      label: 'Check diaper',
+      icon: Icons.child_care_rounded,
+      color: AuthPalette.lavenderMist,
+    ),
+    _RecommendedAction(
+      label: 'Try soothing',
+      icon: Icons.spa_rounded,
+      color: AuthPalette.softCoral,
+    ),
   ];
 
   @override
@@ -977,14 +1277,21 @@ class _RecommendedActionsGrid extends StatelessWidget {
       ),
       itemBuilder: (context, index) {
         final action = _actions[index];
-        return _RecommendedActionTile(action: action, onTap: () => onTap('Marked "${action.label}" as tried 💛'));
+        return _RecommendedActionTile(
+          action: action,
+          onTap: () => onTap('Marked "${action.label}" as tried 💛'),
+        );
       },
     );
   }
 }
 
 class _RecommendedAction {
-  const _RecommendedAction({required this.label, required this.icon, required this.color});
+  const _RecommendedAction({
+    required this.label,
+    required this.icon,
+    required this.color,
+  });
 
   final String label;
   final IconData icon;
@@ -1019,7 +1326,9 @@ class _RecommendedActionTileState extends State<_RecommendedActionTile> {
           decoration: BoxDecoration(
             color: Colors.white.withValues(alpha: 0.9),
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: AuthPalette.lavenderMist.withValues(alpha: 0.4)),
+            border: Border.all(
+              color: AuthPalette.lavenderMist.withValues(alpha: 0.4),
+            ),
           ),
           child: Row(
             children: [
@@ -1030,7 +1339,11 @@ class _RecommendedActionTileState extends State<_RecommendedActionTile> {
                   color: widget.action.color.withValues(alpha: 0.32),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(widget.action.icon, size: 17, color: AuthPalette.textDark),
+                child: Icon(
+                  widget.action.icon,
+                  size: 17,
+                  color: AuthPalette.textDark,
+                ),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -1038,7 +1351,11 @@ class _RecommendedActionTileState extends State<_RecommendedActionTile> {
                   widget.action.label,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.nunito(fontSize: 12.5, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+                  style: GoogleFonts.nunito(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: AuthPalette.textDark,
+                  ),
                 ),
               ),
             ],
@@ -1050,7 +1367,11 @@ class _RecommendedActionTileState extends State<_RecommendedActionTile> {
 }
 
 class _HistoryEntry {
-  const _HistoryEntry({required this.result, required this.confidence, required this.time});
+  const _HistoryEntry({
+    required this.result,
+    required this.confidence,
+    required this.time,
+  });
 
   final String result;
   final int confidence;
@@ -1073,7 +1394,10 @@ class _HistoryCard extends StatelessWidget {
             if (i != entries.length - 1)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Divider(color: AuthPalette.lavenderMist.withValues(alpha: 0.4), height: 1),
+                child: Divider(
+                  color: AuthPalette.lavenderMist.withValues(alpha: 0.4),
+                  height: 1,
+                ),
               ),
           ],
         ],
@@ -1100,7 +1424,11 @@ class _HistoryTile extends StatelessWidget {
               color: AuthPalette.softCoral.withValues(alpha: 0.25),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.graphic_eq_rounded, size: 18, color: AuthPalette.textDark),
+            child: const Icon(
+              Icons.graphic_eq_rounded,
+              size: 18,
+              color: AuthPalette.textDark,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -1109,11 +1437,18 @@ class _HistoryTile extends StatelessWidget {
               children: [
                 Text(
                   '${entry.result} • ${entry.confidence}%',
-                  style: GoogleFonts.nunito(fontSize: 13.5, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+                  style: GoogleFonts.nunito(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w700,
+                    color: AuthPalette.textDark,
+                  ),
                 ),
                 Text(
                   entry.time,
-                  style: GoogleFonts.nunito(fontSize: 12, color: AuthPalette.textMuted),
+                  style: GoogleFonts.nunito(
+                    fontSize: 12,
+                    color: AuthPalette.textMuted,
+                  ),
                 ),
               ],
             ),
@@ -1128,10 +1463,22 @@ class _HowItWorksSheet extends StatelessWidget {
   const _HowItWorksSheet();
 
   static const _steps = <(IconData, String)>[
-    (Icons.mic_rounded, "We listen to the pattern and rhythm of your baby's cry."),
-    (Icons.psychology_alt_rounded, 'The sound is compared against thousands of known cry patterns.'),
-    (Icons.lightbulb_outline_rounded, 'We suggest the most likely reason — gently, and never as a diagnosis.'),
-    (Icons.favorite_outline_rounded, 'Always trust your instincts, and check with a pediatrician if you\'re concerned.'),
+    (
+      Icons.mic_rounded,
+      "We listen to the pattern and rhythm of your baby's cry.",
+    ),
+    (
+      Icons.psychology_alt_rounded,
+      'The sound is compared against thousands of known cry patterns.',
+    ),
+    (
+      Icons.lightbulb_outline_rounded,
+      'We suggest the most likely reason — gently, and never as a diagnosis.',
+    ),
+    (
+      Icons.favorite_outline_rounded,
+      'Always trust your instincts, and check with a pediatrician if you\'re concerned.',
+    ),
   ];
 
   @override
@@ -1161,13 +1508,20 @@ class _HowItWorksSheet extends StatelessWidget {
             Text(
               'How Cry Analysis Works',
               textAlign: TextAlign.center,
-              style: GoogleFonts.quicksand(fontSize: 19, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+              style: GoogleFonts.quicksand(
+                fontSize: 19,
+                fontWeight: FontWeight.w700,
+                color: AuthPalette.textDark,
+              ),
             ),
             const SizedBox(height: 6),
             Text(
               'A gentle, science-informed guide — never a substitute for medical advice.',
               textAlign: TextAlign.center,
-              style: GoogleFonts.nunito(fontSize: 13, color: AuthPalette.textMuted),
+              style: GoogleFonts.nunito(
+                fontSize: 13,
+                color: AuthPalette.textMuted,
+              ),
             ),
             const SizedBox(height: 18),
             for (final (icon, text) in _steps)
@@ -1191,7 +1545,11 @@ class _HowItWorksSheet extends StatelessWidget {
                         padding: const EdgeInsets.only(top: 8),
                         child: Text(
                           text,
-                          style: GoogleFonts.nunito(fontSize: 13.5, color: AuthPalette.textDark, height: 1.35),
+                          style: GoogleFonts.nunito(
+                            fontSize: 13.5,
+                            color: AuthPalette.textDark,
+                            height: 1.35,
+                          ),
                         ),
                       ),
                     ),

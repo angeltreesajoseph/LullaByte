@@ -3,11 +3,13 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../../../core/router/route_paths.dart';
 import '../../../authentication/presentation/widgets/auth_background.dart';
 import '../../../authentication/presentation/widgets/auth_form_controls.dart';
 import '../../../authentication/presentation/widgets/auth_palette.dart';
+import '../../application/baby_profile_store.dart';
 
 /// Baby Profile screen (SRS Section 10.13).
 ///
@@ -36,20 +38,29 @@ class _BabyProfileScreenState extends State<BabyProfileScreen> with SingleTicker
   late final Animation<double> _avatarScale;
 
   // Realistic sample data — no backend/state-management wiring yet.
-  static const _babyName = 'Lily Johnson';
-  static const _ageLabel = '4 months old';
-  static const _bornLabel = 'Born 15 March 2026';
-  static final _dateOfBirth = DateTime(2026, 3, 15);
+  String get _babyName => BabyProfileStore.name;
+  String get _ageLabel => 'Age based on registered date';
+  String get _bornLabel {
+    final date = _dateOfBirth;
+    return date == null ? 'Birth date not recorded' : 'Born ${date.day} ${_month(date.month)} ${date.year}';
+  }
+  DateTime? get _dateOfBirth => DateTime.tryParse(BabyProfileStore.data['birth_date'] as String? ?? '');
+  String _month(int month) => const ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][month - 1];
   static const _healthStatus = 'Healthy';
-  static const _parentName = 'Angel Joseph';
-  static const _weight = '6.2 kg';
-  static const _height = '62 cm';
-  static const _headCircumference = '40 cm';
-  static const _gender = 'Girl';
-  static const _bloodGroup = 'O+';
-  static const _allergies = 'None known';
-  static const _pediatrician = 'Dr. Meera Nair';
-  static const _hospital = "Sunrise Children's Hospital";
+  String get _parentName => FirebaseAuth.instance.currentUser?.displayName ?? 'Parent';
+  String get _weight => _valueWithUnit('birth_weight_kg', 'kg');
+  String get _height => _valueWithUnit('birth_length_cm', 'cm');
+  String get _headCircumference => _valueWithUnit('head_circumference_cm', 'cm');
+  String get _gender => (BabyProfileStore.data['gender'] as String?) ?? 'Not recorded';
+  String get _bloodGroup => (BabyProfileStore.data['blood_group'] as String?) ?? 'Not recorded';
+  String get _allergies => (BabyProfileStore.data['allergies'] as String?) ?? 'Not recorded';
+  String get _pediatrician => (BabyProfileStore.data['pediatrician'] as String?) ?? 'Not recorded';
+  String get _hospital => (BabyProfileStore.data['hospital'] as String?) ?? 'Not recorded';
+
+  String _valueWithUnit(String key, String unit) {
+    final value = BabyProfileStore.data[key];
+    return value == null ? 'Not recorded' : '$value $unit';
+  }
   static const _weightTrend = [5.4, 5.7, 5.9, 6.0, 6.2];
   static const _heightTrend = [54.0, 56.5, 58.0, 60.0, 62.0];
   static const _lastUpdatedLabel = 'Last updated 5 days ago';
@@ -157,7 +168,7 @@ class _BabyProfileScreenState extends State<BabyProfileScreen> with SingleTicker
                                     MaterialPageRoute(
                                       builder: (context) => _EditBabyProfileScreen(
                                         initialName: _babyName,
-                                        initialDateOfBirth: _dateOfBirth,
+                                        initialDateOfBirth: _dateOfBirth ?? DateTime.now(),
                                         initialGender: _gender,
                                         initialWeight: _weight,
                                         initialHeight: _height,
@@ -196,7 +207,7 @@ class _BabyProfileScreenState extends State<BabyProfileScreen> with SingleTicker
                           AuthCard(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: const [
+                              children: [
                                 _InfoRow(icon: Icons.wc_rounded, label: 'Gender', value: _gender),
                                 _InfoDivider(),
                                 _InfoRow(icon: Icons.bloodtype_outlined, label: 'Blood Group', value: _bloodGroup),
@@ -1102,7 +1113,7 @@ class _TwinModeCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            'Caring for twins? Turn on Twin Mode to track a sibling alongside Lily.',
+            'Caring for twins? Turn on Twin Mode to track a sibling alongside ${BabyProfileStore.name}.',
             textAlign: TextAlign.center,
             style: GoogleFonts.nunito(fontSize: 12.5, color: AuthPalette.textMuted, height: 1.4),
           ),

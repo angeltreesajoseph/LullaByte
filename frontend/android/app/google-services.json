@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "59436307142",
+    "project_id": "lulla-byte",
+    "storage_bucket": "lulla-byte.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:59436307142:android:090488470b50c0bde67dc7",
+        "android_client_info": {
+          "package_name": "com.lullabyte.lullabyte"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCDyec-874b_GZWZ2vMnpToPbp3i8T7dKs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

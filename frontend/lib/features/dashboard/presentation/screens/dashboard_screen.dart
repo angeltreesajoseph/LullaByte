@@ -3,8 +3,13 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:dio/dio.dart';
 
 import '../../../../core/router/route_paths.dart';
+import '../../../../core/config/app_config.dart';
+import '../../../baby_management/data/baby_api.dart';
+import '../../../baby_management/application/baby_profile_store.dart';
 import '../../../authentication/presentation/widgets/auth_background.dart';
 import '../../../authentication/presentation/widgets/auth_palette.dart';
 
@@ -38,9 +43,9 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
   late final Animation<double> _heroFade;
 
   // Realistic sample data — no backend/state-management wiring yet.
-  static const _parentName = 'Meera';
-  static const _babyName = 'Lily';
-  static const _babyAgeLabel = '4 months';
+  String _parentName = 'Parent';
+  String _babyName = 'Your baby';
+  String _babyAgeLabel = 'Profile not loaded';
   static const _unreadNotifications = 3;
   static const _babyStatus = _BabyStatus.sleeping;
   static const _lastCryTime = '2 hours ago';
@@ -50,6 +55,45 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
   static const _weightTrend = [5.4, 5.7, 5.9, 6.0, 6.2];
   static const _heightPercentile = 0.62;
   static const _lastMeasuredLabel = 'Last measured 5 days ago';
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _loadBabyProfile();
+  }
+
+  Future<void> _loadBabyProfile() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    if (mounted) setState(() => _parentName = user.displayName?.trim().isNotEmpty == true ? user.displayName!.trim() : 'Parent');
+    try {
+      final token = await user.getIdToken();
+      final dio = Dio(BaseOptions(baseUrl: AppConfig.apiBaseUrl));
+      if (token != null) dio.options.headers['Authorization'] = 'Bearer $token';
+      final babies = await BabyApi(dio).list();
+      if (!mounted || babies.isEmpty) return;
+      final baby = babies.first;
+      final name = baby['name'] as String?;
+      final birthDate = DateTime.tryParse(baby['birth_date'] as String? ?? '');
+      final age = birthDate == null ? 'Age unavailable' : _formatAge(birthDate);
+      setState(() {
+        _babyName = name?.trim().isNotEmpty == true ? name!.trim() : 'Your baby';
+        _babyAgeLabel = age;
+      });
+      BabyProfileStore.name = _babyName;
+      BabyProfileStore.data = baby;
+    } catch (_) {
+      // Keep the calm dashboard available if the API is temporarily offline.
+    }
+  }
+
+  String _formatAge(DateTime birthDate) {
+    final now = DateTime.now();
+    var months = (now.year - birthDate.year) * 12 + now.month - birthDate.month;
+    if (now.day < birthDate.day) months--;
+    if (months < 1) return '${(now.difference(birthDate).inDays).clamp(0, 30)} days';
+    return '$months month${months == 1 ? '' : 's'}';
+  }
 
   @override
   void initState() {
@@ -165,7 +209,7 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                                 child: ScaleTransition(
                                   scale: _heroScale,
                                   alignment: Alignment.topCenter,
-                                  child: const _BabyHeroCard(
+                                  child: _BabyHeroCard(
                                     babyName: _babyName,
                                     babyAge: _babyAgeLabel,
                                     status: _babyStatus,
@@ -1297,4 +1341,3 @@ class _ActivityTimelineTile extends StatelessWidget {
     );
   }
 }
-

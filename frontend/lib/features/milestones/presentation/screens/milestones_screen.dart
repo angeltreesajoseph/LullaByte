@@ -9,6 +9,7 @@ import '../../../authentication/presentation/widgets/auth_background.dart';
 import '../../../authentication/presentation/widgets/auth_palette.dart';
 import '../../domain/entities/milestone_mock_data.dart';
 import '../../domain/entities/milestone_models.dart';
+import '../../../baby_management/application/baby_profile_store.dart';
 import 'milestone_detail_screen.dart';
 
 /// Level 1 of the Milestones feature: "All Milestones" — a scrollable list
@@ -112,7 +113,7 @@ class _MilestonesScreenState extends State<MilestonesScreen> with SingleTickerPr
                                 ),
                                 const SizedBox(height: 6),
                                 Text(
-                                  "Every baby grows at their own pace. Explore Lily's milestones by age group "
+                                  "Every baby grows at their own pace. Explore ${BabyProfileStore.name}'s milestones by age group "
                                   'below — tap a card to see the full checklist and celebrate each little win.',
                                   style: GoogleFonts.nunito(fontSize: 13.5, color: AuthPalette.textMuted, height: 1.5),
                                 ),

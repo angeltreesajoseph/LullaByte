@@ -3,8 +3,10 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../../../core/router/route_paths.dart';
+import '../../../../core/auth/firebase_auth_service.dart';
 import 'forgot_password_screen.dart';
 
 /// Log In screen (SRS Section 10.1.2, Login).
@@ -122,7 +124,10 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       // Simulates the authentication round-trip pending the Authentication
       // data/domain layer integration (AuthRepository is not yet wired to
       // this screen). Field-level validation above is fully functional.
-      await Future.delayed(const Duration(milliseconds: 1100));
+      if (method != _LoginMethod.email) {
+        throw FirebaseAuthException(code: 'unsupported-provider', message: 'Email sign-in is currently available.');
+      }
+      await FirebaseAuthService().signIn(_emailController.text, _passwordController.text);
       if (!mounted) return;
       context.go(RoutePaths.dashboard);
     } catch (_) {

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../../../core/router/route_paths.dart';
+import '../../../../core/auth/firebase_auth_service.dart';
 import '../widgets/auth_background.dart';
 import '../widgets/auth_form_controls.dart';
 import '../widgets/auth_palette.dart';
@@ -135,7 +137,10 @@ class _RegisterScreenState extends State<RegisterScreen> with SingleTickerProvid
       // Authentication data/domain layer integration (AuthRepository is
       // not yet wired to this screen). Field-level validation above is
       // fully functional. Mock-only — no Firebase/backend integration.
-      await Future.delayed(const Duration(milliseconds: 1200));
+      if (method != _RegisterMethod.email) {
+        throw FirebaseAuthException(code: 'unsupported-provider', message: 'Email registration is currently available.');
+      }
+      await FirebaseAuthService().register(_emailController.text, _passwordController.text, _fullNameController.text);
       if (!mounted) return;
       context.go(RoutePaths.babyRegistration);
     } catch (_) {

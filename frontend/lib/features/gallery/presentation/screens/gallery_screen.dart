@@ -10,6 +10,7 @@ import '../../../../core/router/route_paths.dart';
 import '../../../authentication/presentation/widgets/auth_background.dart';
 import '../../../authentication/presentation/widgets/auth_form_controls.dart';
 import '../../../authentication/presentation/widgets/auth_palette.dart';
+import '../../../baby_management/application/baby_profile_store.dart';
 
 class _MemoryPhoto {
   _MemoryPhoto({
@@ -21,7 +22,7 @@ class _MemoryPhoto {
     this.isThisMonth = false,
   });
 
-  final String title;
+  String title;
   final String dateLabel;
   final Color accentColor;
   final File? file;
@@ -112,6 +113,7 @@ class _GalleryScreenState extends State<GalleryScreen> with SingleTickerProvider
   @override
   void initState() {
     super.initState();
+    _photos.first.title = "${BabyProfileStore.name}'s first laugh";
     _entranceController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 900),
