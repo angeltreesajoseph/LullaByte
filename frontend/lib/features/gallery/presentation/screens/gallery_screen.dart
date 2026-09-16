@@ -74,7 +74,7 @@ class _GalleryScreenState extends State<GalleryScreen> with SingleTickerProvider
 
   late final List<_MemoryPhoto> _photos = [
     _MemoryPhoto(
-      title: "Lily's first laugh",
+      title: "${BabyProfileStore.name}'s first laugh",
       dateLabel: '1 Aug 2026',
       accentColor: AuthPalette.blushPink,
       isFavorite: true,
@@ -263,7 +263,7 @@ class _GalleryScreenState extends State<GalleryScreen> with SingleTickerProvider
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
-                                  "Lily's precious moments",
+                                  "${BabyProfileStore.name}'s precious moments",
                                   style: GoogleFonts.nunito(fontSize: 13.5, color: AuthPalette.textMuted),
                                 ),
                               ],

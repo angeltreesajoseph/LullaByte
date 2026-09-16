@@ -39,7 +39,15 @@ class _BabyProfileScreenState extends State<BabyProfileScreen> with SingleTicker
 
   // Realistic sample data — no backend/state-management wiring yet.
   String get _babyName => BabyProfileStore.name;
-  String get _ageLabel => 'Age based on registered date';
+  String get _ageLabel {
+    final date = _dateOfBirth;
+    if (date == null) return 'Age not recorded';
+    final now = DateTime.now();
+    var months = (now.year - date.year) * 12 + now.month - date.month;
+    if (now.day < date.day) months--;
+    if (months < 1) return '${now.difference(date).inDays.clamp(0, 30)} days old';
+    return '$months month${months == 1 ? '' : 's'} old';
+  }
   String get _bornLabel {
     final date = _dateOfBirth;
     return date == null ? 'Birth date not recorded' : 'Born ${date.day} ${_month(date.month)} ${date.year}';
