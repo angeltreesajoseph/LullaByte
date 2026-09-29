@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../../../core/constants/app_constants.dart';
 import '../../../../core/theme/app_colors.dart';
@@ -49,9 +50,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     });
 
     try {
-      // Simulates the password-reset request round-trip pending the
-      // Authentication data/domain layer integration.
-      await Future.delayed(const Duration(milliseconds: 900));
+      await FirebaseAuth.instance.sendPasswordResetEmail(
+        email: _emailController.text.trim(),
+      );
       if (!mounted) return;
       setState(() {
         _isSubmitting = false;
