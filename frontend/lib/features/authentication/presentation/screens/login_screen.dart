@@ -155,6 +155,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
         await preferences.remove(_rememberedEmailKey);
       }
       if (!mounted) return;
+      TextInput.finishAutofillContext(shouldSave: true);
       context.go(RoutePaths.dashboard);
     } catch (_) {
       if (!mounted) return;
@@ -644,9 +645,10 @@ class _LoginCard extends StatelessWidget {
           ),
         ],
       ),
-      child: Form(
-        key: formKey,
-        child: Column(
+      child: AutofillGroup(
+        child: Form(
+          key: formKey,
+          child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (errorMessage != null) ...[
@@ -728,7 +730,8 @@ class _LoginCard extends StatelessWidget {
                 ),
               ],
             ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -871,6 +874,7 @@ class _PastelTextField extends StatelessWidget {
   Widget build(BuildContext context) {
     return TextFormField(
       controller: controller,
+      autofillHints: const [AutofillHints.email, AutofillHints.username],
       enabled: enabled,
       keyboardType: keyboardType,
       validator: validator,
@@ -906,6 +910,7 @@ class _PastelPasswordField extends StatelessWidget {
     return TextFormField(
       controller: controller,
       focusNode: focusNode,
+      autofillHints: const [AutofillHints.password],
       obscureText: obscureText,
       enabled: enabled,
       validator: validator,
