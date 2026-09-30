@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -112,10 +113,6 @@ class _RegisterScreenState extends State<RegisterScreen> with SingleTickerProvid
     await _attemptSubmit(_RegisterMethod.email);
   }
 
-  Future<void> _handleGoogleSignUp() => _attemptSubmit(_RegisterMethod.google);
-
-  Future<void> _handlePhoneContinue() => _attemptSubmit(_RegisterMethod.phone);
-
   Future<void> _attemptSubmit(_RegisterMethod method) async {
     if (!_acceptedTerms) {
       setState(() {
@@ -159,6 +156,19 @@ class _RegisterScreenState extends State<RegisterScreen> with SingleTickerProvid
   }
 
   void _goToLogin() => context.go(RoutePaths.login);
+
+  Future<void> _showLegalDocument(String title, String body) {
+    return showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: SingleChildScrollView(child: Text(body)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -288,7 +298,25 @@ class _RegisterScreenState extends State<RegisterScreen> with SingleTickerProvid
                                               children: [
                                                 const TextSpan(text: 'I agree to the '),
                                                 TextSpan(
-                                                  text: 'Terms & Privacy Policy',
+                                                  text: 'Terms',
+                                                  recognizer: TapGestureRecognizer()
+                                                    ..onTap = () => _showLegalDocument(
+                                                          'Terms and Conditions',
+                                                          _termsText,
+                                                        ),
+                                                  style: GoogleFonts.nunito(
+                                                    fontWeight: FontWeight.w800,
+                                                    color: AuthPalette.softCoral,
+                                                  ),
+                                                ),
+                                                const TextSpan(text: ' and '),
+                                                TextSpan(
+                                                  text: 'Privacy Policy',
+                                                  recognizer: TapGestureRecognizer()
+                                                    ..onTap = () => _showLegalDocument(
+                                                          'Privacy Policy',
+                                                          _privacyText,
+                                                        ),
                                                   style: GoogleFonts.nunito(
                                                     fontWeight: FontWeight.w800,
                                                     color: AuthPalette.softCoral,
@@ -316,26 +344,6 @@ class _RegisterScreenState extends State<RegisterScreen> with SingleTickerProvid
                                           isLoading: _isSubmitting &&
                                               _activeMethod == _RegisterMethod.email,
                                           onPressed: _isSubmitting ? null : _handleEmailRegister,
-                                        ),
-                                        const SizedBox(height: 22),
-                                        const AuthOrDivider(),
-                                        const SizedBox(height: 18),
-                                        AuthOutlineButton(
-                                          label: 'Continue with Google',
-                                          icon: Icons.g_mobiledata_rounded,
-                                          accent: AuthPalette.powderBlue,
-                                          isLoading: _isSubmitting &&
-                                              _activeMethod == _RegisterMethod.google,
-                                          onPressed: _isSubmitting ? null : _handleGoogleSignUp,
-                                        ),
-                                        const SizedBox(height: 12),
-                                        AuthOutlineButton(
-                                          label: 'Continue with Phone',
-                                          icon: Icons.phone_android_rounded,
-                                          accent: AuthPalette.mint,
-                                          isLoading: _isSubmitting &&
-                                              _activeMethod == _RegisterMethod.phone,
-                                          onPressed: _isSubmitting ? null : _handlePhoneContinue,
                                         ),
                                         const SizedBox(height: 20),
                                         Row(
@@ -376,7 +384,11 @@ class _RegisterScreenState extends State<RegisterScreen> with SingleTickerProvid
   }
 }
 
-enum _RegisterMethod { email, google, phone }
+enum _RegisterMethod { email }
+
+const _termsText = '''By creating an account, you agree to use LullaByte responsibly and provide accurate information. LullaByte provides general infant-care information and is not a substitute for a qualified medical professional or emergency services. You are responsible for protecting your account credentials.''';
+
+const _privacyText = '''LullaByte uses your account and baby-care information to provide the app's features, sync data, and improve reliability. We do not store your password in the app. You may request account or data deletion through support. Do not enter information you are not authorized to share.''';
 
 /// Live password strength indicator: four segments filling from Weak
 /// (coral) through Strong (mint) based on length and character variety.
