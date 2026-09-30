@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../../core/router/route_paths.dart';
 import '../../../../core/auth/firebase_auth_service.dart';
@@ -31,6 +32,7 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin {
+  static const _rememberedEmailKey = 'remembered_login_email';
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -52,6 +54,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   @override
   void initState() {
     super.initState();
+    _loadRememberedEmail();
     _entranceController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 600),
@@ -74,6 +77,27 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       vsync: this,
       duration: const Duration(seconds: 3),
     )..repeat(reverse: true);
+  }
+
+  Future<void> _loadRememberedEmail() async {
+    final preferences = await SharedPreferences.getInstance();
+    final email = preferences.getString(_rememberedEmailKey);
+    if (!mounted || email == null || email.isEmpty) return;
+    _emailController.text = email;
+    setState(() => _rememberMe = true);
+  }
+
+  Future<void> _setRememberMe(bool value) async {
+    setState(() => _rememberMe = value);
+    final preferences = await SharedPreferences.getInstance();
+    if (value) {
+      final email = _emailController.text.trim();
+      if (email.isNotEmpty) {
+        await preferences.setString(_rememberedEmailKey, email);
+      }
+    } else {
+      await preferences.remove(_rememberedEmailKey);
+    }
   }
 
   @override
@@ -124,6 +148,12 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
         throw FirebaseAuthException(code: 'unsupported-provider', message: 'Email sign-in is currently available.');
       }
       await FirebaseAuthService().signIn(_emailController.text, _passwordController.text);
+      final preferences = await SharedPreferences.getInstance();
+      if (_rememberMe) {
+        await preferences.setString(_rememberedEmailKey, _emailController.text.trim());
+      } else {
+        await preferences.remove(_rememberedEmailKey);
+      }
       if (!mounted) return;
       context.go(RoutePaths.dashboard);
     } catch (_) {
@@ -222,7 +252,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                                     setState(() => _obscurePassword = !_obscurePassword);
                                   },
                                   onToggleRememberMe: (value) {
-                                    setState(() => _rememberMe = value);
+                                    _setRememberMe(value);
                                   },
                                   onSubmitEmailLogin: _handleEmailLogin,
                                   onForgotPassword: _goToForgotPassword,
