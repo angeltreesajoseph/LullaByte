@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../../../core/router/route_paths.dart';
+import '../../../../core/auth/firebase_auth_service.dart';
 import '../../../authentication/presentation/widgets/auth_background.dart';
 import '../../../authentication/presentation/widgets/auth_form_controls.dart';
 import '../../../authentication/presentation/widgets/auth_palette.dart';
@@ -33,6 +34,26 @@ class BabyProfileScreen extends StatefulWidget {
 class _BabyProfileScreenState extends State<BabyProfileScreen> with SingleTickerProviderStateMixin {
   late final AnimationController _entranceController;
   late final Animation<double> _contentFade;
+  bool _isLoggingOut = false;
+
+  Future<void> _logout() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Log out?'),
+        content: const Text('You can sign in again anytime.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Log out')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _isLoggingOut = true);
+    await FirebaseAuthService().signOut();
+    if (!mounted) return;
+    context.go(RoutePaths.login);
+  }
   late final Animation<Offset> _contentSlide;
   late final Animation<double> _avatarFade;
   late final Animation<double> _avatarScale;
@@ -313,6 +334,14 @@ class _BabyProfileScreenState extends State<BabyProfileScreen> with SingleTicker
                                 ),
                               ),
                             ],
+                          ),
+                          const SizedBox(height: 18),
+                          AuthOutlineButton(
+                            label: 'Log Out',
+                            icon: Icons.logout_rounded,
+                            accent: Colors.redAccent,
+                            isLoading: _isLoggingOut,
+                            onPressed: _isLoggingOut ? null : _logout,
                           ),
                         ],
                       ),
