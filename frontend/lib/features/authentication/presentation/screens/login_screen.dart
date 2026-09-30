@@ -110,8 +110,6 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
 
   Future<void> _handleGoogleSignIn() => _submit(_LoginMethod.google);
 
-  Future<void> _handlePhoneContinue() => _submit(_LoginMethod.phone);
-
   Future<void> _submit(_LoginMethod method) async {
     FocusScope.of(context).unfocus();
     setState(() {
@@ -230,7 +228,6 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                                   },
                                   onSubmitEmailLogin: _handleEmailLogin,
                                   onGoogleSignIn: _handleGoogleSignIn,
-                                  onPhoneContinue: _handlePhoneContinue,
                                   onForgotPassword: _goToForgotPassword,
                                   onRegister: _goToRegister,
                                 ),
@@ -251,7 +248,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   }
 }
 
-enum _LoginMethod { email, google, phone }
+enum _LoginMethod { email, google }
 
 /// The exact pastel palette specified for this screen. Deliberately kept
 /// local — not merged into `core/theme/app_colors.dart` — since this is a
@@ -579,7 +576,6 @@ class _LoginCard extends StatelessWidget {
     required this.onToggleRememberMe,
     required this.onSubmitEmailLogin,
     required this.onGoogleSignIn,
-    required this.onPhoneContinue,
     required this.onForgotPassword,
     required this.onRegister,
   });
@@ -599,7 +595,6 @@ class _LoginCard extends StatelessWidget {
   final ValueChanged<bool> onToggleRememberMe;
   final VoidCallback onSubmitEmailLogin;
   final VoidCallback onGoogleSignIn;
-  final VoidCallback onPhoneContinue;
   final VoidCallback onForgotPassword;
   final VoidCallback onRegister;
 
@@ -699,14 +694,6 @@ class _LoginCard extends StatelessWidget {
               accent: _Palette.powderBlue,
               isLoading: isSubmitting && activeMethod == _LoginMethod.google,
               onPressed: isSubmitting ? null : onGoogleSignIn,
-            ),
-            const SizedBox(height: 12),
-            _PastelOutlineButton(
-              label: 'Continue with Phone',
-              icon: Icons.phone_android_rounded,
-              accent: _Palette.mint,
-              isLoading: isSubmitting && activeMethod == _LoginMethod.phone,
-              onPressed: isSubmitting ? null : onPhoneContinue,
             ),
             const SizedBox(height: 20),
             Row(
