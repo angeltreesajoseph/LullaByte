@@ -108,8 +108,6 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     await _submit(_LoginMethod.email);
   }
 
-  Future<void> _handleGoogleSignIn() => _submit(_LoginMethod.google);
-
   Future<void> _submit(_LoginMethod method) async {
     FocusScope.of(context).unfocus();
     setState(() {
@@ -227,7 +225,6 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                                     setState(() => _rememberMe = value);
                                   },
                                   onSubmitEmailLogin: _handleEmailLogin,
-                                  onGoogleSignIn: _handleGoogleSignIn,
                                   onForgotPassword: _goToForgotPassword,
                                   onRegister: _goToRegister,
                                 ),
@@ -248,7 +245,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   }
 }
 
-enum _LoginMethod { email, google }
+enum _LoginMethod { email }
 
 /// The exact pastel palette specified for this screen. Deliberately kept
 /// local — not merged into `core/theme/app_colors.dart` — since this is a
@@ -575,7 +572,6 @@ class _LoginCard extends StatelessWidget {
     required this.onToggleObscure,
     required this.onToggleRememberMe,
     required this.onSubmitEmailLogin,
-    required this.onGoogleSignIn,
     required this.onForgotPassword,
     required this.onRegister,
   });
@@ -594,7 +590,6 @@ class _LoginCard extends StatelessWidget {
   final VoidCallback onToggleObscure;
   final ValueChanged<bool> onToggleRememberMe;
   final VoidCallback onSubmitEmailLogin;
-  final VoidCallback onGoogleSignIn;
   final VoidCallback onForgotPassword;
   final VoidCallback onRegister;
 
@@ -688,13 +683,6 @@ class _LoginCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 18),
-            _PastelOutlineButton(
-              label: 'Continue with Google',
-              icon: Icons.g_mobiledata_rounded,
-              accent: _Palette.powderBlue,
-              isLoading: isSubmitting && activeMethod == _LoginMethod.google,
-              onPressed: isSubmitting ? null : onGoogleSignIn,
-            ),
             const SizedBox(height: 20),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
