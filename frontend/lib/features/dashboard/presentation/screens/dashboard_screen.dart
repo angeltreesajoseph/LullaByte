@@ -46,6 +46,7 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
   String _parentName = 'Parent';
   String _babyName = 'Your baby';
   String _babyAgeLabel = 'Profile not loaded';
+  List<Map<String, dynamic>> _babies = const [];
   static const _unreadNotifications = 3;
   static const _babyStatus = _BabyStatus.sleeping;
   static const _lastCryTime = '2 hours ago';
@@ -72,7 +73,11 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
       if (token != null) dio.options.headers['Authorization'] = 'Bearer $token';
       final babies = await BabyApi(dio).list();
       if (!mounted || babies.isEmpty) return;
-      final baby = babies.first;
+      final currentId = BabyProfileStore.id;
+      final baby = babies.cast<Map<String, dynamic>>().firstWhere(
+        (item) => item['id'] == currentId,
+        orElse: () => babies.first,
+      );
       final name = baby['name'] as String?;
       final birthDate = DateTime.tryParse(baby['birth_date'] as String? ?? '');
       final age = birthDate == null ? 'Age unavailable' : _formatAge(birthDate);
@@ -80,11 +85,38 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
         _babyName = name?.trim().isNotEmpty == true ? name!.trim() : 'Your baby';
         _babyAgeLabel = age;
       });
-      BabyProfileStore.name = _babyName;
-      BabyProfileStore.data = baby;
+      setState(() => _babies = babies);
+      BabyProfileStore.babies = babies;
+      BabyProfileStore.select(baby);
     } catch (_) {
       // Keep the calm dashboard available if the API is temporarily offline.
     }
+  }
+
+  Future<void> _chooseBaby() async {
+    if (_babies.length < 2) return;
+    final selected = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const ListTile(title: Text('Switch baby'), subtitle: Text('Choose which profile is active')),
+          ..._babies.map((baby) => ListTile(
+                leading: const Icon(Icons.child_care_rounded),
+                title: Text((baby['name'] as String?) ?? 'Your baby'),
+                trailing: baby['id'] == BabyProfileStore.id ? const Icon(Icons.check) : null,
+                onTap: () => Navigator.pop(context, baby),
+              )),
+          const SizedBox(height: 8),
+        ]),
+      ),
+    );
+    if (!mounted || selected == null) return;
+    final birthDate = DateTime.tryParse(selected['birth_date'] as String? ?? '');
+    setState(() {
+      BabyProfileStore.select(selected);
+      _babyName = BabyProfileStore.name;
+      _babyAgeLabel = birthDate == null ? 'Age unavailable' : _formatAge(birthDate);
+    });
   }
 
   String _formatAge(DateTime birthDate) {
@@ -202,6 +234,8 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                                 greeting: _greeting,
                                 unreadCount: _unreadNotifications,
                                 onBellTap: () => context.go(RoutePaths.notifications),
+                                onBabyTap: _chooseBaby,
+                                canSwitchBaby: _babies.length > 1,
                               ),
                               const SizedBox(height: 18),
                               FadeTransition(
@@ -388,6 +422,8 @@ class _DashboardHeader extends StatelessWidget {
     required this.greeting,
     required this.unreadCount,
     required this.onBellTap,
+    required this.onBabyTap,
+    required this.canSwitchBaby,
   });
 
   final String parentName;
@@ -396,6 +432,8 @@ class _DashboardHeader extends StatelessWidget {
   final String greeting;
   final int unreadCount;
   final VoidCallback onBellTap;
+  final VoidCallback onBabyTap;
+  final bool canSwitchBaby;
 
   @override
   Widget build(BuildContext context) {
@@ -437,9 +475,12 @@ class _DashboardHeader extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
               const SizedBox(height: 2),
-              Text(
-                '$babyName • $babyAge',
-                style: GoogleFonts.nunito(fontSize: 13.5, color: AuthPalette.textMuted),
+              InkWell(
+                onTap: canSwitchBaby ? onBabyTap : null,
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Text('$babyName • $babyAge', style: GoogleFonts.nunito(fontSize: 13.5, color: AuthPalette.textMuted)),
+                  if (canSwitchBaby) const Icon(Icons.expand_more_rounded, size: 18),
+                ]),
               ),
             ],
           ),
