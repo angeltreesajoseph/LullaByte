@@ -236,6 +236,19 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
         pediatrician: _pediatricianController.text.trim().isEmpty ? null : _pediatricianController.text.trim(),
         hospital: _hospitalController.text.trim().isEmpty ? null : _hospitalController.text.trim(),
       );
+      if (_isTwin) {
+        await BabyApi(dio).create(
+          name: _twinNameController.text,
+          birthDate: _dateOfBirth,
+          gender: _gender?.name,
+          birthWeightKg: double.tryParse(_weightController.text.trim()),
+          birthLengthCm: double.tryParse(_heightController.text.trim()),
+          bloodGroup: _bloodGroup,
+          allergies: _allergyController.text.trim().isEmpty ? null : _allergyController.text.trim(),
+          pediatrician: _pediatricianController.text.trim().isEmpty ? null : _pediatricianController.text.trim(),
+          hospital: _hospitalController.text.trim().isEmpty ? null : _hospitalController.text.trim(),
+        );
+      }
       if (!mounted) return;
       context.go(RoutePaths.dashboard);
     } catch (_) {

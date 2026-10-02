@@ -4,9 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:dio/dio.dart';
 
 import '../../../../core/router/route_paths.dart';
 import '../../../../core/auth/firebase_auth_service.dart';
+import '../../../../core/config/app_config.dart';
+import '../../data/baby_api.dart';
 import '../../../authentication/presentation/widgets/auth_background.dart';
 import '../../../authentication/presentation/widgets/auth_form_controls.dart';
 import '../../../authentication/presentation/widgets/auth_palette.dart';
@@ -53,6 +56,34 @@ class _BabyProfileScreenState extends State<BabyProfileScreen> with SingleTicker
     await FirebaseAuthService().signOut();
     if (!mounted) return;
     context.go(RoutePaths.login);
+  }
+
+  Future<void> _enableTwinMode() async {
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add a twin profile'),
+        content: TextField(controller: controller, autofocus: true, textCapitalization: TextCapitalization.words, decoration: const InputDecoration(labelText: "Twin's name")),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('Add twin')),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (!mounted || name == null || name.length < 2) return;
+    try {
+      final user = FirebaseAuthService().currentUser;
+      if (user == null) throw StateError('Please sign in again.');
+      final dio = Dio(BaseOptions(baseUrl: AppConfig.apiBaseUrl));
+      final token = await user.getIdToken();
+      if (token != null) dio.options.headers['Authorization'] = 'Bearer $token';
+      await BabyApi(dio).create(name: name);
+      if (mounted) _showToast('$name was added.');
+    } catch (_) {
+      if (mounted) _showToast('Could not add the twin profile. Please try again.');
+    }
   }
   late final Animation<Offset> _contentSlide;
   late final Animation<double> _avatarFade;
@@ -304,7 +335,7 @@ class _BabyProfileScreenState extends State<BabyProfileScreen> with SingleTicker
                           const SizedBox(height: 22),
                           _SectionHeading(title: 'Twin Mode'),
                           const SizedBox(height: 10),
-                          _TwinModeCard(onEnable: () => _showToast('Twin Mode setup is coming soon 🌙')),
+                          _TwinModeCard(onEnable: _enableTwinMode),
                           const SizedBox(height: 26),
                           AuthPrimaryButton(
                             label: 'Edit Profile',
