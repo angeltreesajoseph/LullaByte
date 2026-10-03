@@ -72,6 +72,24 @@ def test_protected_routes_require_bearer_credentials() -> None:
     assert response.headers["WWW-Authenticate"] == "Bearer"
 
 
+def test_cry_history_stores_audio_without_fabricated_prediction(api_client: TestClient) -> None:
+    baby = api_client.post('/api/v1/babies', json={'name': 'Alex'}).json()['data']
+    endpoint = f"/api/v1/babies/{baby['id']}/trackers/cry"
+    entries = [{'audio_data': 'YQ==', 'format': 'm4a', 'time': '2026-10-03',
+                'result': 'Hungry', 'confidence': 99}]
+    saved = api_client.put(endpoint, json=entries)
+    assert saved.status_code == 200
+    assert saved.json()['data'][0]['result'] == 'Analysis unavailable'
+    assert saved.json()['data'][0]['confidence'] is None
+    reloaded = api_client.get(f"/api/v1/babies/{baby['id']}").json()['data']
+    assert reloaded['tracker_data']['cry'][0]['audio_data'] == 'YQ=='
+    assert api_client.put(endpoint, json=[{'audio_data': 'invalid!', 'format': 'm4a'}]).status_code == 422
+    assert api_client.put(endpoint, json=entries * 21).status_code == 422
+    assert api_client.put(f'/api/v1/babies/{uuid4()}/trackers/cry', json=entries).status_code == 404
+    assert api_client.put(endpoint, json=[]).status_code == 200
+    assert api_client.get(f"/api/v1/babies/{baby['id']}").json()['data']['tracker_data']['cry'] == []
+
+
 def test_twins_keep_photos_measurements_and_trackers_separate(api_client: TestClient) -> None:
     first = api_client.post('/api/v1/babies', json={
         'name': 'Chris', 'photo_data': 'YQ==', 'head_circumference_cm': 30,

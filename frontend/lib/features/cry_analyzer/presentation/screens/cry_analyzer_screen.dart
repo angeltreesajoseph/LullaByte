@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -8,6 +9,12 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'package:dio/dio.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../../../../core/config/app_config.dart';
+import '../../../baby_management/application/baby_profile_store.dart';
+import '../../../baby_management/application/profile_tracker.dart';
 
 import '../../../../core/router/route_paths.dart';
 import '../../../authentication/presentation/widgets/auth_background.dart';
@@ -32,7 +39,153 @@ class CryAnalyzerScreen extends StatefulWidget {
 }
 
 class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, ProfileTracker<CryAnalyzerScreen> {
+  final AudioPlayer _player = AudioPlayer();
+  final List<Map<String, dynamic>> _recordings = [];
+  String? _recordingBabyId;
+  bool _inputBusy = false;
+  bool _savingAudio = false;
+  bool _uploadConsent = false;
+  String? _savedAudioPath;
+  String? _playbackPath;
+  @override
+  String get trackerKind => 'cry';
+  @override
+  List<Map<String, dynamic>> encodeEntries() => List.of(_recordings);
+  @override
+  void decodeEntries(List<Map<String, dynamic>> entries) {
+    _recordings
+      ..clear()
+      ..addAll(entries);
+  }
+
+  Future<Dio> _cryClient() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) throw StateError('Sign in required');
+    return Dio(
+      BaseOptions(
+        baseUrl: AppConfig.apiBaseUrl,
+        headers: {'Authorization': 'Bearer ${await user.getIdToken()}'},
+      ),
+    );
+  }
+
+  Future<void> _saveAudio() async {
+    final id = _recordingBabyId;
+    final path = _audioPath;
+    if (_savingAudio || id == null || path == null) return;
+    if (_savedAudioPath == path) {
+      _showToast('This recording is already saved.');
+      return;
+    }
+    if (!trackerReady || BabyProfileStore.id != id) {
+      _showToast('Select the baby this recording belongs to before saving.');
+      return;
+    }
+    if (_recordings.length >= 20) {
+      _showToast(
+        'Delete an older recording before saving another (limit: 20).',
+      );
+      return;
+    }
+    if (!_uploadConsent) {
+      final accepted = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Save recording online?'),
+          content: const Text(
+            'This uploads the audio to your account for the selected baby. It stays in history until deleted. It is not used for model training. Cry analysis is not available yet.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      );
+      if (accepted != true || !mounted) return;
+      _uploadConsent = true;
+    }
+    setState(() => _savingAudio = true);
+    try {
+      final bytes = await File(path).readAsBytes();
+      if (bytes.length > 300000) throw StateError('Recording too large');
+      final entries = [
+        {
+          'audio_data': base64Encode(bytes),
+          'format': _extensionOf(path),
+          'time': DateTime.now().toIso8601String(),
+          'result': 'Analysis unavailable',
+          'confidence': null,
+        },
+        ..._recordings,
+      ];
+      final client = await _cryClient();
+      final response = await client.put(
+        '/babies/$id/trackers/cry',
+        data: entries,
+      );
+      if (!mounted || BabyProfileStore.id != id) return;
+      _savedAudioPath = path;
+      setState(
+        () => decodeEntries(
+          (response.data['data'] as List)
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList(),
+        ),
+      );
+      _showToast('Recording saved. Cry prediction is not available yet.');
+    } catch (_) {
+      if (mounted)
+        _showToast(
+          'Could not save audio. Retry, or use a recording under 300 KB.',
+        );
+    } finally {
+      if (mounted) setState(() => _savingAudio = false);
+    }
+  }
+
+  Future<void> _playSaved(Map<String, dynamic> entry) async {
+    try {
+      final directory = await getTemporaryDirectory();
+      final file = File(
+        '${directory.path}${Platform.pathSeparator}cry_playback.${entry['format']}',
+      );
+      _playbackPath = file.path;
+      await _player.stop();
+      await file.writeAsBytes(base64Decode(entry['audio_data'] as String));
+      await _player.play(DeviceFileSource(file.path));
+    } catch (_) {
+      if (mounted) _showToast('Could not play this recording.');
+    }
+  }
+
+  Future<void> _deleteSaved(Map<String, dynamic> entry) async {
+    if (_savingAudio || !trackerReady) return;
+    final id = BabyProfileStore.id;
+    if (id == null) return;
+    setState(() => _savingAudio = true);
+    try {
+      final entries = _recordings
+          .where((item) => !identical(item, entry))
+          .toList();
+      await _player.stop();
+      final client = await _cryClient();
+      await client.put('/babies/$id/trackers/cry', data: entries);
+      if (mounted && BabyProfileStore.id == id)
+        setState(() => decodeEntries(entries));
+    } catch (_) {
+      if (mounted) _showToast('Could not delete recording. Please retry.');
+    } finally {
+      if (mounted) setState(() => _savingAudio = false);
+    }
+  }
+
   late final AnimationController _entranceController;
   late final Animation<double> _contentFade;
   late final Animation<Offset> _contentSlide;
@@ -51,19 +204,10 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
   static const _supportedExtensions = <String>{'wav', 'mp3', 'm4a'};
   static const _minimumRecordingDuration = Duration(milliseconds: 700);
 
-  static const _history = <_HistoryEntry>[
-    _HistoryEntry(result: 'Hungry', confidence: 86, time: 'Today, 2:15 PM'),
-    _HistoryEntry(result: 'Tired', confidence: 78, time: 'Today, 11:40 AM'),
-    _HistoryEntry(
-      result: 'Discomfort',
-      confidence: 65,
-      time: 'Yesterday, 9:20 PM',
-    ),
-  ];
-
   @override
   void initState() {
     super.initState();
+    startTracker();
     _entranceController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 600),
@@ -93,19 +237,35 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
 
   @override
   void dispose() {
+    stopTracker();
+    unawaited(_cleanUpAudio());
     _entranceController.dispose();
     _breatheController.dispose();
     _pulseController.dispose();
     _recordingTimer?.cancel();
-    unawaited(_audioRecorder.dispose());
     super.dispose();
+  }
+
+  Future<void> _cleanUpAudio() async {
+    try {
+      await _player.dispose();
+      await _audioRecorder.dispose();
+      await _discardOwnedAudioFile();
+      final path = _playbackPath;
+      if (path != null) {
+        final file = File(path);
+        if (await file.exists()) await file.delete();
+      }
+    } catch (_) {
+      // Temporary files may already have been removed by the operating system.
+    }
   }
 
   String get _statusText => switch (_state) {
     _AnalyzerState.idle => 'Ready to listen',
     _AnalyzerState.recording => 'Listening…',
     _AnalyzerState.analyzing => 'Analyzing audio…',
-    _AnalyzerState.audioReady => 'Audio ready for analysis',
+    _AnalyzerState.audioReady => 'Audio ready — prediction unavailable',
     _AnalyzerState.error => 'Audio input error',
     _AnalyzerState.resultReady => 'Result ready',
   };
@@ -138,21 +298,33 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
   }
 
   Future<void> _handleMicTap() async {
-    switch (_state) {
-      case _AnalyzerState.idle:
-      case _AnalyzerState.audioReady:
-      case _AnalyzerState.error:
-      case _AnalyzerState.resultReady:
-        await _startRecording();
-      case _AnalyzerState.recording:
-        await _stopRecording();
-      case _AnalyzerState.analyzing:
-        break;
+    if (_inputBusy || _savingAudio) return;
+    _inputBusy = true;
+    try {
+      switch (_state) {
+        case _AnalyzerState.idle:
+        case _AnalyzerState.audioReady:
+        case _AnalyzerState.error:
+        case _AnalyzerState.resultReady:
+          await _startRecording();
+        case _AnalyzerState.recording:
+          await _stopRecording();
+        case _AnalyzerState.analyzing:
+          break;
+      }
+    } finally {
+      _inputBusy = false;
     }
   }
 
   Future<void> _startRecording() async {
+    if (!trackerReady || BabyProfileStore.id == null) {
+      _showToast('Wait for the selected baby’s history to load.');
+      return;
+    }
+    _recordingBabyId = BabyProfileStore.id;
     try {
+      await _player.stop();
       final hasPermission = await _audioRecorder.hasPermission();
       if (!hasPermission) {
         _setInputError('Microphone permission is required to record audio.');
@@ -165,7 +337,11 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
           '${directory.path}${Platform.pathSeparator}lullabyte_cry_${DateTime.now().millisecondsSinceEpoch}.m4a';
 
       await _audioRecorder.start(
-        const RecordConfig(encoder: AudioEncoder.aacLc, numChannels: 1),
+        const RecordConfig(
+          encoder: AudioEncoder.aacLc,
+          numChannels: 1,
+          bitRate: 64000,
+        ),
         path: path,
       );
       if (!mounted) return;
@@ -180,6 +356,7 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
       });
       _recordingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
         if (mounted) setState(() => _recordingSeconds++);
+        if (_recordingSeconds >= 30) unawaited(_handleMicTap());
       });
     } catch (_) {
       _setInputError('Unable to start recording. Please try again.');
@@ -206,6 +383,7 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
       }
       _audioPath = path;
       await _markAudioReady();
+      await _saveAudio();
     } catch (_) {
       _recordingStartedAt = null;
       await _discardOwnedAudioFile();
@@ -214,6 +392,8 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
   }
 
   Future<void> _handleUpload() async {
+    if (!trackerReady || _savingAudio || BabyProfileStore.id == null) return;
+    _recordingBabyId = BabyProfileStore.id;
     if (_state == _AnalyzerState.recording ||
         _state == _AnalyzerState.analyzing) {
       return;
@@ -240,16 +420,13 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
       _audioPath = path;
       _ownsAudioFile = false;
       await _markAudioReady();
+      await _saveAudio();
     } catch (_) {
       _setInputError('Unable to open this audio file. Please try again.');
     }
   }
 
   Future<void> _markAudioReady() async {
-    if (!mounted) return;
-    setState(() => _state = _AnalyzerState.analyzing);
-    // Deliberate integration boundary: a future ML service starts here.
-    await Future<void>.delayed(const Duration(milliseconds: 500));
     if (!mounted) return;
     setState(() => _state = _AnalyzerState.audioReady);
   }
@@ -288,6 +465,7 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
   }
 
   Future<void> _handleDelete() async {
+    await _player.stop();
     _recordingTimer?.cancel();
     await _discardOwnedAudioFile();
     if (!mounted) return;
@@ -297,16 +475,32 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
     });
   }
 
-  void _handlePlay() {
-    _showToast('Audio is ready. Playback will be connected with analysis.');
+  Future<void> _handlePlay() async {
+    final path = _audioPath;
+    if (path == null) return;
+    try {
+      await _player.stop();
+      await _player.play(DeviceFileSource(path));
+    } catch (_) {
+      if (mounted) _showToast('Could not play audio.');
+    }
   }
 
   void _showHowItWorksSheet() {
-    showModalBottomSheet<void>(
+    showDialog<void>(
       context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (context) => const _HowItWorksSheet(),
+      builder: (context) => AlertDialog(
+        title: const Text('Cry recordings'),
+        content: const Text(
+          'Tap the microphone to start, then tap again to stop. Recording stops automatically after 30 seconds. With your permission, audio is saved online under the selected baby. Play or delete it from Recent History. The current model is not ready for use: no cry reasons, confidence percentages, or reason-specific recommendations are generated.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -424,7 +618,40 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
                           const SizedBox(height: 26),
                           _SectionHeading(title: 'Recent History'),
                           const SizedBox(height: 10),
-                          _HistoryCard(entries: _history),
+                          Text('Recordings for ${BabyProfileStore.name}'),
+                          const Text(
+                            'Experimental feature: cry prediction and confidence percentages are not available. Recordings are limited to 30 seconds.',
+                          ),
+                          if (_state == _AnalyzerState.audioReady)
+                            TextButton(
+                              onPressed: _savingAudio ? null : _saveAudio,
+                              child: Text(
+                                _savingAudio
+                                    ? 'Saving…'
+                                    : 'Save / retry saving recording',
+                              ),
+                            ),
+                          if (!trackerReady) const LinearProgressIndicator(),
+                          if (trackerReady && _recordings.isEmpty)
+                            const Text('No saved recordings yet.'),
+                          for (final entry in _recordings)
+                            ListTile(
+                              title: Text(
+                                entry['result'] as String? ??
+                                    'Analysis unavailable',
+                              ),
+                              subtitle: Text(entry['time'] as String? ?? ''),
+                              leading: IconButton(
+                                icon: const Icon(Icons.play_arrow),
+                                onPressed: () => _playSaved(entry),
+                              ),
+                              trailing: IconButton(
+                                icon: const Icon(Icons.delete_outline),
+                                onPressed: _savingAudio
+                                    ? null
+                                    : () => _deleteSaved(entry),
+                              ),
+                            ),
                         ],
                       ),
                     ),

@@ -91,8 +91,27 @@ async def save_tracker(
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> SuccessResponse:
-    if kind not in {'feeding', 'sleep', 'diaper', 'growth', 'milestones', 'memories'}:
+    if kind not in {'feeding', 'sleep', 'diaper', 'growth', 'milestones', 'memories', 'cry'}:
         raise HTTPException(status_code=400, detail='Unknown tracker.')
+    if kind == 'cry':
+        import base64
+        import binascii
+        if len(entries) > 20:
+            raise HTTPException(status_code=422, detail='Maximum 20 recordings per baby.')
+        for entry in entries:
+            audio = entry.get('audio_data')
+            if not isinstance(audio, str) or len(audio) > 400000:
+                raise HTTPException(status_code=422, detail='Audio exceeds recording size limit.')
+            try:
+                if not base64.b64decode(audio, validate=True):
+                    raise ValueError('Empty audio')
+            except (ValueError, binascii.Error):
+                raise HTTPException(status_code=422, detail='Invalid audio data.')
+            if entry.get('format') not in {'wav', 'mp3', 'm4a'}:
+                raise HTTPException(status_code=422, detail='Unsupported audio format.')
+            # No validated inference model is deployed. Never accept client predictions.
+            entry['result'] = 'Analysis unavailable'
+            entry['confidence'] = None
     result = await session.execute(select(Baby).where(
         Baby.id == baby_id, Baby.owner_user_id == user.id
     ).with_for_update())
