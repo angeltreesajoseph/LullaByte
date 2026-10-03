@@ -40,6 +40,8 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
   final _formKey = GlobalKey<FormState>();
   final _babyNameController = TextEditingController();
   final _twinNameController = TextEditingController();
+  final _headController = TextEditingController();
+  final _twinHeadController = TextEditingController();
   final _twinWeightController = TextEditingController();
   final _twinHeightController = TextEditingController();
   final _twinPediatricianController = TextEditingController();
@@ -69,7 +71,17 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
   bool _isSkipping = false;
   String? _errorMessage;
 
-  static const _bloodGroups = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'Not sure yet'];
+  static const _bloodGroups = [
+    'A+',
+    'A-',
+    'B+',
+    'B-',
+    'AB+',
+    'AB-',
+    'O+',
+    'O-',
+    'Not sure yet',
+  ];
 
   @override
   void initState() {
@@ -78,11 +90,17 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
       vsync: this,
       duration: const Duration(milliseconds: 600),
     );
-    _entranceFade = CurvedAnimation(parent: _entranceController, curve: Curves.easeOut);
-    _entranceSlide = Tween<Offset>(
-      begin: const Offset(0, 0.05),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _entranceController, curve: Curves.easeOutCubic));
+    _entranceFade = CurvedAnimation(
+      parent: _entranceController,
+      curve: Curves.easeOut,
+    );
+    _entranceSlide =
+        Tween<Offset>(begin: const Offset(0, 0.05), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _entranceController,
+            curve: Curves.easeOutCubic,
+          ),
+        );
     _entranceController.forward();
   }
 
@@ -91,6 +109,8 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
     _entranceController.dispose();
     _babyNameController.dispose();
     _twinNameController.dispose();
+    _headController.dispose();
+    _twinHeadController.dispose();
     _twinWeightController.dispose();
     _twinHeightController.dispose();
     _twinPediatricianController.dispose();
@@ -139,6 +159,24 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
     return null;
   }
 
+  Widget _headField(TextEditingController controller, String label) {
+    return AuthTextField(
+      controller: controller,
+      label: label,
+      hintText: 'Enter measurement if known',
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      prefixIcon: Icons.circle_outlined,
+      enabled: !_isSubmitting,
+      validator: (value) {
+        if (value == null || value.trim().isEmpty) return null;
+        final number = double.tryParse(value.trim());
+        return number == null || number <= 0 || number > 100
+            ? 'Enter a valid measurement in cm'
+            : null;
+      },
+    );
+  }
+
   Future<void> _pickDateOfBirth() async {
     final now = DateTime.now();
     final picked = await showDatePicker(
@@ -156,7 +194,9 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
               onSurface: AuthPalette.textDark,
             ),
             textButtonTheme: TextButtonThemeData(
-              style: TextButton.styleFrom(foregroundColor: AuthPalette.softCoral),
+              style: TextButton.styleFrom(
+                foregroundColor: AuthPalette.softCoral,
+              ),
             ),
           ),
           child: child!,
@@ -185,7 +225,8 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
     final action = await showModalBottomSheet<_PhotoAction>(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (sheetContext) => _PhotoOptionsSheet(hasPhoto: _babyPhoto != null),
+      builder: (sheetContext) =>
+          _PhotoOptionsSheet(hasPhoto: _babyPhoto != null),
     );
     if (action == null || !mounted) return;
 
@@ -210,7 +251,9 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
       setState(() => _babyPhoto = File(picked.path));
     } catch (_) {
       if (!mounted) return;
-      setState(() => _errorMessage = "Couldn't access the camera or photo library.");
+      setState(
+        () => _errorMessage = "Couldn't access the camera or photo library.",
+      );
     }
   }
 
@@ -220,7 +263,8 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
     final missing = <String>[];
     if (_dateOfBirth == null) missing.add('date of birth');
     if (_gender == null) missing.add('gender');
-    if (_isTwin && _twinDateOfBirth == null) missing.add("your twin's date of birth");
+    if (_isTwin && _twinDateOfBirth == null)
+      missing.add("your twin's date of birth");
     if (_isTwin && _twinGender == null) missing.add("your twin's gender");
 
     setState(() {
@@ -247,32 +291,49 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
       // round-trip pending the Baby Management data/domain layer
       // integration — mock/local state only, no backend or Firebase.
       final user = FirebaseAuthService().currentUser;
-      if (user == null) throw StateError('Please sign in again before saving the baby profile.');
+      if (user == null)
+        throw StateError(
+          'Please sign in again before saving the baby profile.',
+        );
       final dio = Dio(BaseOptions(baseUrl: AppConfig.apiBaseUrl));
       final token = await user.getIdToken();
       if (token != null) dio.options.headers['Authorization'] = 'Bearer $token';
       await BabyApi(dio).create(
         name: _babyNameController.text,
+        headCircumferenceCm: double.tryParse(_headController.text.trim()),
         birthDate: _dateOfBirth,
         gender: _gender?.name,
         birthWeightKg: double.tryParse(_weightController.text.trim()),
         birthLengthCm: double.tryParse(_heightController.text.trim()),
         bloodGroup: _bloodGroup,
-        allergies: _allergyController.text.trim().isEmpty ? null : _allergyController.text.trim(),
-        pediatrician: _pediatricianController.text.trim().isEmpty ? null : _pediatricianController.text.trim(),
-        hospital: _hospitalController.text.trim().isEmpty ? null : _hospitalController.text.trim(),
+        allergies: _allergyController.text.trim().isEmpty
+            ? null
+            : _allergyController.text.trim(),
+        pediatrician: _pediatricianController.text.trim().isEmpty
+            ? null
+            : _pediatricianController.text.trim(),
+        hospital: _hospitalController.text.trim().isEmpty
+            ? null
+            : _hospitalController.text.trim(),
       );
       if (_isTwin) {
         await BabyApi(dio).create(
           name: _twinNameController.text,
+          headCircumferenceCm: double.tryParse(_twinHeadController.text.trim()),
           birthDate: _twinDateOfBirth,
           gender: _twinGender?.name,
           birthWeightKg: double.tryParse(_twinWeightController.text.trim()),
           birthLengthCm: double.tryParse(_twinHeightController.text.trim()),
           bloodGroup: _twinBloodGroup,
-          allergies: _twinAllergyController.text.trim().isEmpty ? null : _twinAllergyController.text.trim(),
-          pediatrician: _twinPediatricianController.text.trim().isEmpty ? null : _twinPediatricianController.text.trim(),
-          hospital: _twinHospitalController.text.trim().isEmpty ? null : _twinHospitalController.text.trim(),
+          allergies: _twinAllergyController.text.trim().isEmpty
+              ? null
+              : _twinAllergyController.text.trim(),
+          pediatrician: _twinPediatricianController.text.trim().isEmpty
+              ? null
+              : _twinPediatricianController.text.trim(),
+          hospital: _twinHospitalController.text.trim().isEmpty
+              ? null
+              : _twinHospitalController.text.trim(),
         );
       }
       if (!mounted) return;
@@ -307,7 +368,9 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
           SafeArea(
             child: Column(
               children: [
-                AuthBackButton(onPressed: context.canPop() ? () => context.pop() : null),
+                AuthBackButton(
+                  onPressed: context.canPop() ? () => context.pop() : null,
+                ),
                 Expanded(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
@@ -347,12 +410,16 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
                                 child: AuthCard(
                                   child: Form(
                                     key: _formKey,
-                                    autovalidateMode: AutovalidateMode.onUserInteraction,
+                                    autovalidateMode:
+                                        AutovalidateMode.onUserInteraction,
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
                                       children: [
                                         if (_errorMessage != null) ...[
-                                          AuthErrorBanner(message: _errorMessage!),
+                                          AuthErrorBanner(
+                                            message: _errorMessage!,
+                                          ),
                                           const SizedBox(height: 16),
                                         ],
                                         Center(
@@ -366,7 +433,8 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
                                           controller: _babyNameController,
                                           label: "Baby's Name",
                                           hintText: 'e.g. Aanya',
-                                          textCapitalization: TextCapitalization.words,
+                                          textCapitalization:
+                                              TextCapitalization.words,
                                           prefixIcon: Icons.child_care_outlined,
                                           validator: _validateBabyName,
                                           enabled: !_isSubmitting,
@@ -382,7 +450,9 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
                                           onTap: _pickDateOfBirth,
                                         ),
                                         if (_showDobError)
-                                          const _InlineError(text: 'Date of birth is required'),
+                                          const _InlineError(
+                                            text: 'Date of birth is required',
+                                          ),
                                         const SizedBox(height: 16),
                                         Text(
                                           'Gender',
@@ -404,10 +474,14 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
                                           },
                                         ),
                                         if (_showGenderError)
-                                          const _InlineError(text: "Please select your baby's gender"),
+                                          const _InlineError(
+                                            text:
+                                                "Please select your baby's gender",
+                                          ),
                                         const SizedBox(height: 14),
                                         Row(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
                                           children: [
                                             Expanded(
                                               child: AuthTextField(
@@ -416,9 +490,10 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
                                                 hintText: 'e.g. 3.2',
                                                 keyboardType:
                                                     const TextInputType.numberWithOptions(
-                                                  decimal: true,
-                                                ),
-                                                prefixIcon: Icons.monitor_weight_outlined,
+                                                      decimal: true,
+                                                    ),
+                                                prefixIcon: Icons
+                                                    .monitor_weight_outlined,
                                                 validator: _validateWeight,
                                                 enabled: !_isSubmitting,
                                               ),
@@ -431,9 +506,10 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
                                                 hintText: 'e.g. 50',
                                                 keyboardType:
                                                     const TextInputType.numberWithOptions(
-                                                  decimal: true,
-                                                ),
-                                                prefixIcon: Icons.straighten_outlined,
+                                                      decimal: true,
+                                                    ),
+                                                prefixIcon:
+                                                    Icons.straighten_outlined,
                                                 validator: _validateHeight,
                                                 enabled: !_isSubmitting,
                                               ),
@@ -449,13 +525,18 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
                                             color: AuthPalette.textDark,
                                           ),
                                           dropdownColor: AuthPalette.warmCream,
-                                          borderRadius: BorderRadius.circular(18),
-                                          icon: const Icon(Icons.expand_more_rounded,
-                                              color: AuthPalette.textMuted),
+                                          borderRadius: BorderRadius.circular(
+                                            18,
+                                          ),
+                                          icon: const Icon(
+                                            Icons.expand_more_rounded,
+                                            color: AuthPalette.textMuted,
+                                          ),
                                           decoration: authPastelDecoration(
                                             label: 'Blood Group',
                                             hint: 'Select if known',
-                                            prefixIcon: Icons.bloodtype_outlined,
+                                            prefixIcon:
+                                                Icons.bloodtype_outlined,
                                           ),
                                           items: _bloodGroups
                                               .map(
@@ -467,15 +548,19 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
                                               .toList(),
                                           onChanged: _isSubmitting
                                               ? null
-                                              : (value) => setState(() => _bloodGroup = value),
+                                              : (value) => setState(
+                                                  () => _bloodGroup = value,
+                                                ),
                                         ),
                                         const SizedBox(height: 14),
                                         AuthTextField(
                                           controller: _pediatricianController,
                                           label: 'Pediatrician Name (optional)',
                                           hintText: 'e.g. Dr. Meera Nair',
-                                          textCapitalization: TextCapitalization.words,
-                                          prefixIcon: Icons.medical_services_outlined,
+                                          textCapitalization:
+                                              TextCapitalization.words,
+                                          prefixIcon:
+                                              Icons.medical_services_outlined,
                                           validator: (_) => null,
                                           enabled: !_isSubmitting,
                                         ),
@@ -483,9 +568,12 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
                                         AuthTextField(
                                           controller: _hospitalController,
                                           label: 'Hospital Name (optional)',
-                                          hintText: 'e.g. Sunrise Children\'s Hospital',
-                                          textCapitalization: TextCapitalization.words,
-                                          prefixIcon: Icons.local_hospital_outlined,
+                                          hintText:
+                                              'e.g. Sunrise Children\'s Hospital',
+                                          textCapitalization:
+                                              TextCapitalization.words,
+                                          prefixIcon:
+                                              Icons.local_hospital_outlined,
                                           validator: (_) => null,
                                           enabled: !_isSubmitting,
                                         ),
@@ -501,54 +589,276 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
                                           cursorColor: AuthPalette.softCoral,
                                           decoration: authPastelDecoration(
                                             label: 'Allergy Notes (optional)',
-                                            hint: 'Anything you\'d like caregivers to know',
-                                            prefixIcon: Icons.health_and_safety_outlined,
+                                            hint:
+                                                'Anything you\'d like caregivers to know',
+                                            prefixIcon: Icons
+                                                .health_and_safety_outlined,
                                           ),
                                         ),
                                         const SizedBox(height: 8),
                                         _TwinToggleRow(
                                           value: _isTwin,
                                           enabled: !_isSubmitting,
-                                          onChanged: (value) => setState(() => _isTwin = value),
+                                          onChanged: (value) =>
+                                              setState(() => _isTwin = value),
+                                        ),
+                                        const SizedBox(height: 14),
+                                        _headField(
+                                          _headController,
+                                          'Head circumference (cm, optional)',
                                         ),
                                         AnimatedSize(
-                                          duration: const Duration(milliseconds: 280),
+                                          duration: const Duration(
+                                            milliseconds: 280,
+                                          ),
                                           curve: Curves.easeInOut,
                                           child: !_isTwin
-                                              ? const SizedBox(width: double.infinity)
+                                              ? const SizedBox(
+                                                  width: double.infinity,
+                                                )
                                               : Padding(
-                                                  padding: const EdgeInsets.only(top: 12),
+                                                  padding:
+                                                      const EdgeInsets.only(
+                                                        top: 12,
+                                                      ),
                                                   child: Column(
                                                     children: [
-                                                      AuthTextField(controller: _twinNameController, label: "Twin's Name", hintText: 'e.g. Ishaan', textCapitalization: TextCapitalization.words, prefixIcon: Icons.diversity_3_outlined, validator: _validateTwinName, enabled: !_isSubmitting),
-                                                      const SizedBox(height: 14),
+                                                      AuthTextField(
+                                                        controller:
+                                                            _twinNameController,
+                                                        label: "Twin's Name",
+                                                        hintText: 'e.g. Ishaan',
+                                                        textCapitalization:
+                                                            TextCapitalization
+                                                                .words,
+                                                        prefixIcon: Icons
+                                                            .diversity_3_outlined,
+                                                        validator:
+                                                            _validateTwinName,
+                                                        enabled: !_isSubmitting,
+                                                      ),
+                                                      const SizedBox(
+                                                        height: 14,
+                                                      ),
+                                                      _headField(
+                                                        _twinHeadController,
+                                                        "Twin's head circumference (cm, optional)",
+                                                      ),
+                                                      const SizedBox(
+                                                        height: 14,
+                                                      ),
                                                       TextFormField(
                                                         readOnly: true,
-                                                        controller: TextEditingController(text: _twinDateOfBirth == null ? '' : DateFormat('dd MMM yyyy').format(_twinDateOfBirth!)),
-                                                        onTap: _pickTwinDateOfBirth,
-                                                        validator: (_) => _twinDateOfBirth == null ? 'Select your twin\'s date of birth' : null,
-                                                        decoration: authPastelDecoration(label: "Twin's Date of Birth", hint: 'Select date', prefixIcon: Icons.calendar_today_outlined),
+                                                        controller: TextEditingController(
+                                                          text:
+                                                              _twinDateOfBirth ==
+                                                                  null
+                                                              ? ''
+                                                              : DateFormat(
+                                                                  'dd MMM yyyy',
+                                                                ).format(
+                                                                  _twinDateOfBirth!,
+                                                                ),
+                                                        ),
+                                                        onTap:
+                                                            _pickTwinDateOfBirth,
+                                                        validator: (_) =>
+                                                            _twinDateOfBirth ==
+                                                                null
+                                                            ? 'Select your twin\'s date of birth'
+                                                            : null,
+                                                        decoration: authPastelDecoration(
+                                                          label:
+                                                              "Twin's Date of Birth",
+                                                          hint: 'Select date',
+                                                          prefixIcon: Icons
+                                                              .calendar_today_outlined,
+                                                        ),
                                                       ),
-                                                      const SizedBox(height: 14),
-                                                      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                                        Text('Twin\'s Gender', style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.w700, color: AuthPalette.textMuted)),
-                                                        const SizedBox(height: 8),
-                                                        _GenderSelector(value: _twinGender, enabled: !_isSubmitting, onChanged: (value) => setState(() => _twinGender = value)),
-                                                      ]),
-                                                      const SizedBox(height: 14),
-                                                      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                                        Expanded(child: AuthTextField(controller: _twinWeightController, label: 'Twin Weight (kg)', hintText: 'e.g. 3.1', keyboardType: const TextInputType.numberWithOptions(decimal: true), prefixIcon: Icons.monitor_weight_outlined, validator: _validateWeight, enabled: !_isSubmitting)),
-                                                        const SizedBox(width: 12),
-                                                        Expanded(child: AuthTextField(controller: _twinHeightController, label: 'Twin Height (cm)', hintText: 'e.g. 49', keyboardType: const TextInputType.numberWithOptions(decimal: true), prefixIcon: Icons.straighten_outlined, validator: _validateHeight, enabled: !_isSubmitting)),
-                                                      ]),
-                                                      const SizedBox(height: 14),
-                                                      DropdownButtonFormField<String>(initialValue: _twinBloodGroup, isExpanded: true, decoration: authPastelDecoration(label: "Twin's Blood Group", hint: 'Select if known', prefixIcon: Icons.bloodtype_outlined), items: _bloodGroups.map((group) => DropdownMenuItem(value: group, child: Text(group))).toList(), onChanged: _isSubmitting ? null : (value) => setState(() => _twinBloodGroup = value)),
-                                                      const SizedBox(height: 14),
-                                                      AuthTextField(controller: _twinPediatricianController, label: "Twin's Pediatrician (optional)", hintText: 'e.g. Dr. Meera Nair', textCapitalization: TextCapitalization.words, prefixIcon: Icons.medical_services_outlined, validator: (_) => null, enabled: !_isSubmitting),
-                                                      const SizedBox(height: 14),
-                                                      AuthTextField(controller: _twinHospitalController, label: "Twin's Hospital (optional)", hintText: 'e.g. Sunrise Children\'s Hospital', textCapitalization: TextCapitalization.words, prefixIcon: Icons.local_hospital_outlined, validator: (_) => null, enabled: !_isSubmitting),
-                                                      const SizedBox(height: 14),
-                                                      TextFormField(controller: _twinAllergyController, enabled: !_isSubmitting, maxLines: 3, decoration: authPastelDecoration(label: "Twin's Allergy Notes (optional)", hint: 'Anything caregivers should know', prefixIcon: Icons.health_and_safety_outlined)),
+                                                      const SizedBox(
+                                                        height: 14,
+                                                      ),
+                                                      Column(
+                                                        crossAxisAlignment:
+                                                            CrossAxisAlignment
+                                                                .start,
+                                                        children: [
+                                                          Text(
+                                                            'Twin\'s Gender',
+                                                            style: GoogleFonts.nunito(
+                                                              fontSize: 13,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w700,
+                                                              color: AuthPalette
+                                                                  .textMuted,
+                                                            ),
+                                                          ),
+                                                          const SizedBox(
+                                                            height: 8,
+                                                          ),
+                                                          _GenderSelector(
+                                                            value: _twinGender,
+                                                            enabled:
+                                                                !_isSubmitting,
+                                                            onChanged:
+                                                                (
+                                                                  value,
+                                                                ) => setState(
+                                                                  () =>
+                                                                      _twinGender =
+                                                                          value,
+                                                                ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                      const SizedBox(
+                                                        height: 14,
+                                                      ),
+                                                      Row(
+                                                        crossAxisAlignment:
+                                                            CrossAxisAlignment
+                                                                .start,
+                                                        children: [
+                                                          Expanded(
+                                                            child: AuthTextField(
+                                                              controller:
+                                                                  _twinWeightController,
+                                                              label:
+                                                                  'Twin Weight (kg)',
+                                                              hintText:
+                                                                  'e.g. 3.1',
+                                                              keyboardType:
+                                                                  const TextInputType.numberWithOptions(
+                                                                    decimal:
+                                                                        true,
+                                                                  ),
+                                                              prefixIcon: Icons
+                                                                  .monitor_weight_outlined,
+                                                              validator:
+                                                                  _validateWeight,
+                                                              enabled:
+                                                                  !_isSubmitting,
+                                                            ),
+                                                          ),
+                                                          const SizedBox(
+                                                            width: 12,
+                                                          ),
+                                                          Expanded(
+                                                            child: AuthTextField(
+                                                              controller:
+                                                                  _twinHeightController,
+                                                              label:
+                                                                  'Twin Height (cm)',
+                                                              hintText:
+                                                                  'e.g. 49',
+                                                              keyboardType:
+                                                                  const TextInputType.numberWithOptions(
+                                                                    decimal:
+                                                                        true,
+                                                                  ),
+                                                              prefixIcon: Icons
+                                                                  .straighten_outlined,
+                                                              validator:
+                                                                  _validateHeight,
+                                                              enabled:
+                                                                  !_isSubmitting,
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                      const SizedBox(
+                                                        height: 14,
+                                                      ),
+                                                      DropdownButtonFormField<
+                                                        String
+                                                      >(
+                                                        initialValue:
+                                                            _twinBloodGroup,
+                                                        isExpanded: true,
+                                                        decoration: authPastelDecoration(
+                                                          label:
+                                                              "Twin's Blood Group",
+                                                          hint:
+                                                              'Select if known',
+                                                          prefixIcon: Icons
+                                                              .bloodtype_outlined,
+                                                        ),
+                                                        items: _bloodGroups
+                                                            .map(
+                                                              (group) =>
+                                                                  DropdownMenuItem(
+                                                                    value:
+                                                                        group,
+                                                                    child: Text(
+                                                                      group,
+                                                                    ),
+                                                                  ),
+                                                            )
+                                                            .toList(),
+                                                        onChanged: _isSubmitting
+                                                            ? null
+                                                            : (
+                                                                value,
+                                                              ) => setState(
+                                                                () =>
+                                                                    _twinBloodGroup =
+                                                                        value,
+                                                              ),
+                                                      ),
+                                                      const SizedBox(
+                                                        height: 14,
+                                                      ),
+                                                      AuthTextField(
+                                                        controller:
+                                                            _twinPediatricianController,
+                                                        label:
+                                                            "Twin's Pediatrician (optional)",
+                                                        hintText:
+                                                            'e.g. Dr. Meera Nair',
+                                                        textCapitalization:
+                                                            TextCapitalization
+                                                                .words,
+                                                        prefixIcon: Icons
+                                                            .medical_services_outlined,
+                                                        validator: (_) => null,
+                                                        enabled: !_isSubmitting,
+                                                      ),
+                                                      const SizedBox(
+                                                        height: 14,
+                                                      ),
+                                                      AuthTextField(
+                                                        controller:
+                                                            _twinHospitalController,
+                                                        label:
+                                                            "Twin's Hospital (optional)",
+                                                        hintText:
+                                                            'e.g. Sunrise Children\'s Hospital',
+                                                        textCapitalization:
+                                                            TextCapitalization
+                                                                .words,
+                                                        prefixIcon: Icons
+                                                            .local_hospital_outlined,
+                                                        validator: (_) => null,
+                                                        enabled: !_isSubmitting,
+                                                      ),
+                                                      const SizedBox(
+                                                        height: 14,
+                                                      ),
+                                                      TextFormField(
+                                                        controller:
+                                                            _twinAllergyController,
+                                                        enabled: !_isSubmitting,
+                                                        maxLines: 3,
+                                                        decoration: authPastelDecoration(
+                                                          label:
+                                                              "Twin's Allergy Notes (optional)",
+                                                          hint:
+                                                              'Anything caregivers should know',
+                                                          prefixIcon: Icons
+                                                              .health_and_safety_outlined,
+                                                        ),
+                                                      ),
                                                     ],
                                                   ),
                                                 ),
@@ -557,8 +867,9 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
                                         AuthPrimaryButton(
                                           label: 'Save & Continue',
                                           isLoading: _isSubmitting,
-                                          onPressed:
-                                              _isSubmitting ? null : _handleSaveAndContinue,
+                                          onPressed: _isSubmitting
+                                              ? null
+                                              : _handleSaveAndContinue,
                                         ),
                                         const SizedBox(height: 12),
                                         AuthOutlineButton(
@@ -567,7 +878,9 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
                                           accent: AuthPalette.lavenderMist,
                                           isLoading: _isSkipping,
                                           onPressed:
-                                              (_isSubmitting || _isSkipping) ? null : _handleSkip,
+                                              (_isSubmitting || _isSkipping)
+                                              ? null
+                                              : _handleSkip,
                                         ),
                                       ],
                                     ),
@@ -606,7 +919,9 @@ class _BabyPhotoPicker extends StatelessWidget {
   Widget build(BuildContext context) {
     return Semantics(
       button: true,
-      label: photo == null ? "Add your baby's photo" : "Change your baby's photo",
+      label: photo == null
+          ? "Add your baby's photo"
+          : "Change your baby's photo",
       child: GestureDetector(
         onTap: onTap,
         child: Stack(
@@ -618,13 +933,23 @@ class _BabyPhotoPicker extends StatelessWidget {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: AuthPalette.blushPink.withValues(alpha: 0.35),
-                border: Border.all(color: AuthPalette.lavenderMist.withValues(alpha: 0.8), width: 2),
+                border: Border.all(
+                  color: AuthPalette.lavenderMist.withValues(alpha: 0.8),
+                  width: 2,
+                ),
                 image: photo != null
-                    ? DecorationImage(image: FileImage(photo!), fit: BoxFit.cover)
+                    ? DecorationImage(
+                        image: FileImage(photo!),
+                        fit: BoxFit.cover,
+                      )
                     : null,
               ),
               child: photo == null
-                  ? const Icon(Icons.child_friendly_rounded, size: 44, color: AuthPalette.softCoral)
+                  ? const Icon(
+                      Icons.child_friendly_rounded,
+                      size: 44,
+                      color: AuthPalette.softCoral,
+                    )
                   : null,
             ),
             Positioned(
@@ -638,7 +963,11 @@ class _BabyPhotoPicker extends StatelessWidget {
                   color: AuthPalette.softCoral,
                   border: Border.all(color: Colors.white, width: 2.5),
                 ),
-                child: const Icon(Icons.photo_camera_rounded, size: 16, color: Colors.white),
+                child: const Icon(
+                  Icons.photo_camera_rounded,
+                  size: 16,
+                  color: Colors.white,
+                ),
               ),
             ),
           ],
@@ -741,7 +1070,11 @@ class _PhotoOptionTile extends StatelessWidget {
               const SizedBox(width: 14),
               Text(
                 label,
-                style: GoogleFonts.nunito(fontSize: 15, fontWeight: FontWeight.w600, color: color),
+                style: GoogleFonts.nunito(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: color,
+                ),
               ),
             ],
           ),
@@ -786,13 +1119,26 @@ class _PastelPickerField extends StatelessWidget {
         decoration: InputDecoration(
           labelText: label,
           hintText: hint,
-          labelStyle: GoogleFonts.nunito(color: AuthPalette.textMuted, fontSize: 14),
-          hintStyle: GoogleFonts.nunito(color: AuthPalette.textMuted.withValues(alpha: 0.6), fontSize: 14),
+          labelStyle: GoogleFonts.nunito(
+            color: AuthPalette.textMuted,
+            fontSize: 14,
+          ),
+          hintStyle: GoogleFonts.nunito(
+            color: AuthPalette.textMuted.withValues(alpha: 0.6),
+            fontSize: 14,
+          ),
           prefixIcon: Icon(icon, color: AuthPalette.textMuted),
-          suffixIcon: const Icon(Icons.calendar_today_outlined, color: AuthPalette.textMuted, size: 18),
+          suffixIcon: const Icon(
+            Icons.calendar_today_outlined,
+            color: AuthPalette.textMuted,
+            size: 18,
+          ),
           filled: true,
           fillColor: AuthPalette.blushPink.withValues(alpha: 0.28),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 16,
+          ),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(18),
             borderSide: BorderSide.none,
@@ -826,7 +1172,11 @@ class _InlineError extends StatelessWidget {
       padding: const EdgeInsets.only(top: 6, left: 4),
       child: Text(
         text,
-        style: GoogleFonts.nunito(fontSize: 11.5, color: AuthPalette.error, fontWeight: FontWeight.w600),
+        style: GoogleFonts.nunito(
+          fontSize: 11.5,
+          color: AuthPalette.error,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }
@@ -834,7 +1184,11 @@ class _InlineError extends StatelessWidget {
 
 /// Pastel chip selector for Girl / Boy / Prefer not to say.
 class _GenderSelector extends StatelessWidget {
-  const _GenderSelector({required this.value, required this.enabled, required this.onChanged});
+  const _GenderSelector({
+    required this.value,
+    required this.enabled,
+    required this.onChanged,
+  });
 
   final _Gender? value;
   final bool enabled;
@@ -920,14 +1274,20 @@ class _GenderChip extends StatelessWidget {
                 color: selected ? accent.withValues(alpha: 0.22) : Colors.white,
                 borderRadius: BorderRadius.circular(18),
                 border: Border.all(
-                  color: selected ? accent : AuthPalette.lavenderMist.withValues(alpha: 0.5),
+                  color: selected
+                      ? accent
+                      : AuthPalette.lavenderMist.withValues(alpha: 0.5),
                   width: selected ? 2 : 1.5,
                 ),
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(icon, color: selected ? accent : AuthPalette.textMuted, size: 22),
+                  Icon(
+                    icon,
+                    color: selected ? accent : AuthPalette.textMuted,
+                    size: 22,
+                  ),
                   const SizedBox(height: 4),
                   Text(
                     label,
@@ -935,7 +1295,9 @@ class _GenderChip extends StatelessWidget {
                     style: GoogleFonts.nunito(
                       fontSize: 12,
                       fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                      color: selected ? AuthPalette.textDark : AuthPalette.textMuted,
+                      color: selected
+                          ? AuthPalette.textDark
+                          : AuthPalette.textMuted,
                       height: 1.15,
                     ),
                   ),
@@ -951,7 +1313,11 @@ class _GenderChip extends StatelessWidget {
 
 /// Twin-mode switch row.
 class _TwinToggleRow extends StatelessWidget {
-  const _TwinToggleRow({required this.value, required this.enabled, required this.onChanged});
+  const _TwinToggleRow({
+    required this.value,
+    required this.enabled,
+    required this.onChanged,
+  });
 
   final bool value;
   final bool enabled;
@@ -968,7 +1334,11 @@ class _TwinToggleRow extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(Icons.diversity_3_outlined, color: AuthPalette.textDark, size: 20),
+          const Icon(
+            Icons.diversity_3_outlined,
+            color: AuthPalette.textDark,
+            size: 20,
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Text(

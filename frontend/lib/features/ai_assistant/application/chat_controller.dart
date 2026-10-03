@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../domain/entities/chat_message.dart';
 import 'assistant_providers.dart';
+import '../../baby_management/application/baby_profile_store.dart';
 
 class ChatState {
   const ChatState({required this.messages, required this.isTyping});
@@ -24,14 +25,20 @@ class ChatState {
 class ChatController extends Notifier<ChatState> {
   @override
   ChatState build() {
+    void reset() {
+      state = ChatState(messages: [_welcomeMessage()], isTyping: false);
+    }
+
+    BabyProfileStore.changes.addListener(reset);
+    ref.onDispose(() => BabyProfileStore.changes.removeListener(reset));
     return ChatState(messages: [_welcomeMessage()], isTyping: false);
   }
 
   ChatMessage _welcomeMessage() {
     return ChatMessage(
       id: 'welcome',
-      text: "Hi, I'm the LullaByte Assistant! Ask me anything about Lily's sleep, feeding, diapers, vaccines, "
-          'growth, or milestones.',
+      text:
+          "Hi! I'm viewing ${BabyProfileStore.name}'s profile. Ask me about the recorded measurements or profile details.",
       sender: ChatSender.assistant,
       timestamp: DateTime.now(),
     );
@@ -40,6 +47,7 @@ class ChatController extends Notifier<ChatState> {
   Future<void> sendMessage(String text, {required bool isOnline}) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty || state.isTyping) return;
+    final babyId = BabyProfileStore.id;
 
     final userMessage = ChatMessage(
       id: _newId(),
@@ -47,26 +55,37 @@ class ChatController extends Notifier<ChatState> {
       sender: ChatSender.user,
       timestamp: DateTime.now(),
     );
-    state = state.copyWith(messages: [...state.messages, userMessage], isTyping: true);
+    state = state.copyWith(
+      messages: [...state.messages, userMessage],
+      isTyping: true,
+    );
 
     final String responseText;
     if (isOnline) {
-      responseText = await ref.read(aiResponseServiceProvider).getResponse(trimmed);
+      responseText = await ref
+          .read(aiResponseServiceProvider)
+          .getResponse(trimmed);
     } else {
       await Future.delayed(const Duration(milliseconds: 700));
       responseText = ref.read(localResponseEngineProvider).respond(trimmed);
     }
 
+    if (BabyProfileStore.id != babyId) return;
     final assistantMessage = ChatMessage(
       id: _newId(),
       text: responseText,
       sender: ChatSender.assistant,
       timestamp: DateTime.now(),
     );
-    state = state.copyWith(messages: [...state.messages, assistantMessage], isTyping: false);
+    state = state.copyWith(
+      messages: [...state.messages, assistantMessage],
+      isTyping: false,
+    );
   }
 
   String _newId() => DateTime.now().microsecondsSinceEpoch.toString();
 }
 
-final chatControllerProvider = NotifierProvider<ChatController, ChatState>(ChatController.new);
+final chatControllerProvider = NotifierProvider<ChatController, ChatState>(
+  ChatController.new,
+);

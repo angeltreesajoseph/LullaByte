@@ -34,7 +34,8 @@ class BabyProfileScreen extends StatefulWidget {
   State<BabyProfileScreen> createState() => _BabyProfileScreenState();
 }
 
-class _BabyProfileScreenState extends State<BabyProfileScreen> with SingleTickerProviderStateMixin {
+class _BabyProfileScreenState extends State<BabyProfileScreen>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _entranceController;
   late final Animation<double> _contentFade;
   bool _isLoggingOut = false;
@@ -46,8 +47,14 @@ class _BabyProfileScreenState extends State<BabyProfileScreen> with SingleTicker
         title: const Text('Log out?'),
         content: const Text('You can sign in again anytime.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Log out')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Log out'),
+          ),
         ],
       ),
     );
@@ -64,10 +71,21 @@ class _BabyProfileScreenState extends State<BabyProfileScreen> with SingleTicker
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Add a twin profile'),
-        content: TextField(controller: controller, autofocus: true, textCapitalization: TextCapitalization.words, decoration: const InputDecoration(labelText: "Twin's name")),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          textCapitalization: TextCapitalization.words,
+          decoration: const InputDecoration(labelText: "Twin's name"),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('Add twin')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('Add twin'),
+          ),
         ],
       ),
     );
@@ -82,9 +100,11 @@ class _BabyProfileScreenState extends State<BabyProfileScreen> with SingleTicker
       await BabyApi(dio).create(name: name);
       if (mounted) _showToast('$name was added.');
     } catch (_) {
-      if (mounted) _showToast('Could not add the twin profile. Please try again.');
+      if (mounted)
+        _showToast('Could not add the twin profile. Please try again.');
     }
   }
+
   late final Animation<Offset> _contentSlide;
   late final Animation<double> _avatarFade;
   late final Animation<double> _avatarScale;
@@ -97,30 +117,57 @@ class _BabyProfileScreenState extends State<BabyProfileScreen> with SingleTicker
     final now = DateTime.now();
     var months = (now.year - date.year) * 12 + now.month - date.month;
     if (now.day < date.day) months--;
-    if (months < 1) return '${now.difference(date).inDays.clamp(0, 30)} days old';
+    if (months < 1)
+      return '${now.difference(date).inDays.clamp(0, 30)} days old';
     return '$months month${months == 1 ? '' : 's'} old';
   }
+
   String get _bornLabel {
     final date = _dateOfBirth;
-    return date == null ? 'Birth date not recorded' : 'Born ${date.day} ${_month(date.month)} ${date.year}';
+    return date == null
+        ? 'Birth date not recorded'
+        : 'Born ${date.day} ${_month(date.month)} ${date.year}';
   }
-  DateTime? get _dateOfBirth => DateTime.tryParse(BabyProfileStore.data['birth_date'] as String? ?? '');
-  String _month(int month) => const ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][month - 1];
+
+  DateTime? get _dateOfBirth =>
+      DateTime.tryParse(BabyProfileStore.data['birth_date'] as String? ?? '');
+  String _month(int month) => const [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ][month - 1];
   static const _healthStatus = 'Healthy';
-  String get _parentName => FirebaseAuth.instance.currentUser?.displayName ?? 'Parent';
+  String get _parentName =>
+      FirebaseAuth.instance.currentUser?.displayName ?? 'Parent';
   String get _weight => _valueWithUnit('birth_weight_kg', 'kg');
   String get _height => _valueWithUnit('birth_length_cm', 'cm');
-  String get _headCircumference => _valueWithUnit('head_circumference_cm', 'cm');
-  String get _gender => (BabyProfileStore.data['gender'] as String?) ?? 'Not recorded';
-  String get _bloodGroup => (BabyProfileStore.data['blood_group'] as String?) ?? 'Not recorded';
-  String get _allergies => (BabyProfileStore.data['allergies'] as String?) ?? 'Not recorded';
-  String get _pediatrician => (BabyProfileStore.data['pediatrician'] as String?) ?? 'Not recorded';
-  String get _hospital => (BabyProfileStore.data['hospital'] as String?) ?? 'Not recorded';
+  String get _headCircumference =>
+      _valueWithUnit('head_circumference_cm', 'cm');
+  String get _gender =>
+      (BabyProfileStore.data['gender'] as String?) ?? 'Not recorded';
+  String get _bloodGroup =>
+      (BabyProfileStore.data['blood_group'] as String?) ?? 'Not recorded';
+  String get _allergies =>
+      (BabyProfileStore.data['allergies'] as String?) ?? 'Not recorded';
+  String get _pediatrician =>
+      (BabyProfileStore.data['pediatrician'] as String?) ?? 'Not recorded';
+  String get _hospital =>
+      (BabyProfileStore.data['hospital'] as String?) ?? 'Not recorded';
 
   String _valueWithUnit(String key, String unit) {
     final value = BabyProfileStore.data[key];
     return value == null ? 'Not recorded' : '$value $unit';
   }
+
   static const _weightTrend = [5.4, 5.7, 5.9, 6.0, 6.2];
   static const _heightTrend = [54.0, 56.5, 58.0, 60.0, 62.0];
   static const _lastUpdatedLabel = 'Last updated 5 days ago';
@@ -135,6 +182,7 @@ class _BabyProfileScreenState extends State<BabyProfileScreen> with SingleTicker
   @override
   void initState() {
     super.initState();
+    BabyProfileStore.changes.addListener(_refreshProfile);
     _entranceController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 900),
@@ -143,20 +191,28 @@ class _BabyProfileScreenState extends State<BabyProfileScreen> with SingleTicker
       parent: _entranceController,
       curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
     );
-    _contentSlide = Tween<Offset>(begin: const Offset(0, 0.04), end: Offset.zero).animate(
-      CurvedAnimation(parent: _entranceController, curve: const Interval(0.0, 0.6, curve: Curves.easeOutCubic)),
-    );
+    _contentSlide =
+        Tween<Offset>(begin: const Offset(0, 0.04), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _entranceController,
+            curve: const Interval(0.0, 0.6, curve: Curves.easeOutCubic),
+          ),
+        );
     _avatarFade = CurvedAnimation(
       parent: _entranceController,
       curve: const Interval(0.1, 0.6, curve: Curves.easeOut),
     );
     _avatarScale = Tween<double>(begin: 0.8, end: 1.0).animate(
-      CurvedAnimation(parent: _entranceController, curve: const Interval(0.1, 0.8, curve: Curves.easeOutBack)),
+      CurvedAnimation(
+        parent: _entranceController,
+        curve: const Interval(0.1, 0.8, curve: Curves.easeOutBack),
+      ),
     );
   }
 
   @override
   void dispose() {
+    BabyProfileStore.changes.removeListener(_refreshProfile);
     _entranceController.dispose();
     super.dispose();
   }
@@ -168,13 +224,22 @@ class _BabyProfileScreenState extends State<BabyProfileScreen> with SingleTicker
         SnackBar(
           behavior: SnackBarBehavior.floating,
           backgroundColor: AuthPalette.textDark,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
           content: Text(
             message,
-            style: GoogleFonts.nunito(color: Colors.white, fontWeight: FontWeight.w600),
+            style: GoogleFonts.nunito(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       );
+  }
+
+  void _refreshProfile() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -200,7 +265,10 @@ class _BabyProfileScreenState extends State<BabyProfileScreen> with SingleTicker
                         children: [
                           Row(
                             children: [
-                              AuthBackButton(onPressed: () => context.go(RoutePaths.dashboard)),
+                              AuthBackButton(
+                                onPressed: () =>
+                                    context.go(RoutePaths.dashboard),
+                              ),
                               const Spacer(),
                             ],
                           ),
@@ -224,22 +292,31 @@ class _BabyProfileScreenState extends State<BabyProfileScreen> with SingleTicker
                                   // rootNavigator: true escapes this tab's branch
                                   // Navigator so Edit Profile renders full-screen,
                                   // outside MainNavigationShell's persistent bottom bar.
-                                  onTap: () => Navigator.of(context, rootNavigator: true).push(
-                                    MaterialPageRoute(
-                                      builder: (context) => _EditBabyProfileScreen(
-                                        initialName: _babyName,
-                                        initialDateOfBirth: _dateOfBirth ?? DateTime.now(),
-                                        initialGender: _gender,
-                                        initialWeight: _weight,
-                                        initialHeight: _height,
-                                        initialHeadCircumference: _headCircumference,
-                                        initialBloodGroup: _bloodGroup,
-                                        initialAllergies: _allergies,
-                                        initialPediatrician: _pediatrician,
-                                        initialHospital: _hospital,
+                                  onTap: () =>
+                                      Navigator.of(
+                                        context,
+                                        rootNavigator: true,
+                                      ).push(
+                                        MaterialPageRoute(
+                                          builder: (context) =>
+                                              _EditBabyProfileScreen(
+                                                initialName: _babyName,
+                                                initialDateOfBirth:
+                                                    _dateOfBirth ??
+                                                    DateTime.now(),
+                                                initialGender: _gender,
+                                                initialWeight: _weight,
+                                                initialHeight: _height,
+                                                initialHeadCircumference:
+                                                    _headCircumference,
+                                                initialBloodGroup: _bloodGroup,
+                                                initialAllergies: _allergies,
+                                                initialPediatrician:
+                                                    _pediatrician,
+                                                initialHospital: _hospital,
+                                              ),
+                                        ),
                                       ),
-                                    ),
-                                  ),
                                 ),
                               ],
                             ),
@@ -268,15 +345,35 @@ class _BabyProfileScreenState extends State<BabyProfileScreen> with SingleTicker
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                _InfoRow(icon: Icons.wc_rounded, label: 'Gender', value: _gender),
+                                _InfoRow(
+                                  icon: Icons.wc_rounded,
+                                  label: 'Gender',
+                                  value: _gender,
+                                ),
                                 _InfoDivider(),
-                                _InfoRow(icon: Icons.bloodtype_outlined, label: 'Blood Group', value: _bloodGroup),
+                                _InfoRow(
+                                  icon: Icons.bloodtype_outlined,
+                                  label: 'Blood Group',
+                                  value: _bloodGroup,
+                                ),
                                 _InfoDivider(),
-                                _InfoRow(icon: Icons.health_and_safety_outlined, label: 'Allergies', value: _allergies),
+                                _InfoRow(
+                                  icon: Icons.health_and_safety_outlined,
+                                  label: 'Allergies',
+                                  value: _allergies,
+                                ),
                                 _InfoDivider(),
-                                _InfoRow(icon: Icons.medical_services_outlined, label: 'Pediatrician', value: _pediatrician),
+                                _InfoRow(
+                                  icon: Icons.medical_services_outlined,
+                                  label: 'Pediatrician',
+                                  value: _pediatrician,
+                                ),
                                 _InfoDivider(),
-                                _InfoRow(icon: Icons.local_hospital_outlined, label: 'Hospital', value: _hospital),
+                                _InfoRow(
+                                  icon: Icons.local_hospital_outlined,
+                                  label: 'Hospital',
+                                  value: _hospital,
+                                ),
                               ],
                             ),
                           ),
@@ -327,11 +424,16 @@ class _BabyProfileScreenState extends State<BabyProfileScreen> with SingleTicker
                             ),
                           ),
                           const SizedBox(height: 22),
-                          _FamilySharingCard(onTap: () => context.go(RoutePaths.familySharing)),
+                          _FamilySharingCard(
+                            onTap: () => context.go(RoutePaths.familySharing),
+                          ),
                           const SizedBox(height: 22),
                           _SectionHeading(title: 'Memories'),
                           const SizedBox(height: 10),
-                          _MemoriesCard(onOpenGallery: () => _showToast('Memories is coming soon 🌙')),
+                          _MemoriesCard(
+                            onOpenGallery: () =>
+                                _showToast('Memories is coming soon 🌙'),
+                          ),
                           const SizedBox(height: 22),
                           _SectionHeading(title: 'Twin Mode'),
                           const SizedBox(height: 10),
@@ -340,7 +442,8 @@ class _BabyProfileScreenState extends State<BabyProfileScreen> with SingleTicker
                           AuthPrimaryButton(
                             label: 'Edit Profile',
                             isLoading: false,
-                            onPressed: () => _showToast('Edit Profile is coming soon 🌙'),
+                            onPressed: () =>
+                                _showToast('Edit Profile is coming soon 🌙'),
                           ),
                           const SizedBox(height: 12),
                           Row(
@@ -351,7 +454,9 @@ class _BabyProfileScreenState extends State<BabyProfileScreen> with SingleTicker
                                   icon: Icons.ios_share_rounded,
                                   accent: AuthPalette.powderBlue,
                                   isLoading: false,
-                                  onPressed: () => _showToast('Share Profile is coming soon 🌙'),
+                                  onPressed: () => _showToast(
+                                    'Share Profile is coming soon 🌙',
+                                  ),
                                 ),
                               ),
                               const SizedBox(width: 12),
@@ -361,7 +466,9 @@ class _BabyProfileScreenState extends State<BabyProfileScreen> with SingleTicker
                                   icon: Icons.picture_as_pdf_outlined,
                                   accent: AuthPalette.mint,
                                   isLoading: false,
-                                  onPressed: () => _showToast('Export PDF is coming soon 🌙'),
+                                  onPressed: () => _showToast(
+                                    'Export PDF is coming soon 🌙',
+                                  ),
                                 ),
                               ),
                             ],
@@ -399,22 +506,60 @@ class _ProfileFloatingDecor extends StatefulWidget {
   State<_ProfileFloatingDecor> createState() => _ProfileFloatingDecorState();
 }
 
-class _ProfileFloatingDecorState extends State<_ProfileFloatingDecor> with SingleTickerProviderStateMixin {
+class _ProfileFloatingDecorState extends State<_ProfileFloatingDecor>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
 
   static const _specs = <_DecorSpec>[
-    _DecorSpec(icon: Icons.star_rounded, top: 0.03, left: 0.88, size: 12, color: AuthPalette.softCoral, phase: 0.0),
-    _DecorSpec(icon: Icons.cloud_rounded, top: 0.07, left: 0.08, size: 20, color: AuthPalette.powderBlue, phase: 0.45),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.18, left: 0.05, size: 10, color: AuthPalette.mint, phase: 0.2),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.30, left: 0.93, size: 11, color: AuthPalette.lavenderMist, phase: 0.65),
-    _DecorSpec(icon: Icons.cloud_rounded, top: 0.50, left: 0.90, size: 16, color: AuthPalette.blushPink, phase: 0.1),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.03,
+      left: 0.88,
+      size: 12,
+      color: AuthPalette.softCoral,
+      phase: 0.0,
+    ),
+    _DecorSpec(
+      icon: Icons.cloud_rounded,
+      top: 0.07,
+      left: 0.08,
+      size: 20,
+      color: AuthPalette.powderBlue,
+      phase: 0.45,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.18,
+      left: 0.05,
+      size: 10,
+      color: AuthPalette.mint,
+      phase: 0.2,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.30,
+      left: 0.93,
+      size: 11,
+      color: AuthPalette.lavenderMist,
+      phase: 0.65,
+    ),
+    _DecorSpec(
+      icon: Icons.cloud_rounded,
+      top: 0.50,
+      left: 0.90,
+      size: 16,
+      color: AuthPalette.blushPink,
+      phase: 0.1,
+    ),
   ];
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(seconds: 4))
-      ..repeat(reverse: true);
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 4),
+    )..repeat(reverse: true);
   }
 
   @override
@@ -437,7 +582,12 @@ class _ProfileFloatingDecorState extends State<_ProfileFloatingDecor> with Singl
                   child: AnimatedBuilder(
                     animation: _controller,
                     builder: (context, child) {
-                      final t = (math.sin((_controller.value + spec.phase) * math.pi * 2) + 1) / 2;
+                      final t =
+                          (math.sin(
+                                (_controller.value + spec.phase) * math.pi * 2,
+                              ) +
+                              1) /
+                          2;
                       return Opacity(opacity: 0.07 + (t * 0.09), child: child);
                     },
                     child: Icon(spec.icon, size: spec.size, color: spec.color),
@@ -470,7 +620,11 @@ class _DecorSpec {
 }
 
 class _CircleIconButton extends StatelessWidget {
-  const _CircleIconButton({required this.icon, required this.label, required this.onTap});
+  const _CircleIconButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
 
   final IconData icon;
   final String label;
@@ -508,7 +662,11 @@ class _SectionHeading extends StatelessWidget {
       padding: const EdgeInsets.only(left: 4),
       child: Text(
         title,
-        style: GoogleFonts.quicksand(fontSize: 17, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+        style: GoogleFonts.quicksand(
+          fontSize: 17,
+          fontWeight: FontWeight.w700,
+          color: AuthPalette.textDark,
+        ),
       ),
     );
   }
@@ -549,7 +707,9 @@ class _ProfileHeroCard extends StatelessWidget {
           ],
         ),
         borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: AuthPalette.lavenderMist.withValues(alpha: 0.5)),
+        border: Border.all(
+          color: AuthPalette.lavenderMist.withValues(alpha: 0.5),
+        ),
         boxShadow: [
           BoxShadow(
             color: AuthPalette.softCoral.withValues(alpha: 0.14),
@@ -584,7 +744,11 @@ class _ProfileHeroCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                child: const Icon(Icons.child_friendly_rounded, color: AuthPalette.softCoral, size: 42),
+                child: const Icon(
+                  Icons.child_friendly_rounded,
+                  color: AuthPalette.softCoral,
+                  size: 42,
+                ),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -601,15 +765,24 @@ class _ProfileHeroCard extends StatelessWidget {
                     ),
                     Text(
                       ageLabel,
-                      style: GoogleFonts.nunito(fontSize: 13.5, color: AuthPalette.textMuted),
+                      style: GoogleFonts.nunito(
+                        fontSize: 13.5,
+                        color: AuthPalette.textMuted,
+                      ),
                     ),
                     Text(
                       bornLabel,
-                      style: GoogleFonts.nunito(fontSize: 12, color: AuthPalette.textMuted),
+                      style: GoogleFonts.nunito(
+                        fontSize: 12,
+                        color: AuthPalette.textMuted,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
                       decoration: BoxDecoration(
                         color: AuthPalette.mint.withValues(alpha: 0.32),
                         borderRadius: BorderRadius.circular(20),
@@ -617,7 +790,11 @@ class _ProfileHeroCard extends StatelessWidget {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.favorite_rounded, size: 13, color: AuthPalette.textDark),
+                          const Icon(
+                            Icons.favorite_rounded,
+                            size: 13,
+                            color: AuthPalette.textDark,
+                          ),
                           const SizedBox(width: 5),
                           Text(
                             healthStatus,
@@ -638,11 +815,18 @@ class _ProfileHeroCard extends StatelessWidget {
           const SizedBox(height: 10),
           Row(
             children: [
-              const Icon(Icons.person_outline_rounded, size: 15, color: AuthPalette.textMuted),
+              const Icon(
+                Icons.person_outline_rounded,
+                size: 15,
+                color: AuthPalette.textMuted,
+              ),
               const SizedBox(width: 6),
               Text(
                 'Parent: $parentName',
-                style: GoogleFonts.nunito(fontSize: 12.5, color: AuthPalette.textMuted),
+                style: GoogleFonts.nunito(
+                  fontSize: 12.5,
+                  color: AuthPalette.textMuted,
+                ),
               ),
             ],
           ),
@@ -656,15 +840,27 @@ class _ProfileHeroCard extends StatelessWidget {
             child: Row(
               children: [
                 Expanded(
-                  child: _StatBlock(icon: Icons.monitor_weight_outlined, label: 'Weight', value: weight),
+                  child: _StatBlock(
+                    icon: Icons.monitor_weight_outlined,
+                    label: 'Weight',
+                    value: weight,
+                  ),
                 ),
                 _statDivider(),
                 Expanded(
-                  child: _StatBlock(icon: Icons.straighten_outlined, label: 'Height', value: height),
+                  child: _StatBlock(
+                    icon: Icons.straighten_outlined,
+                    label: 'Height',
+                    value: height,
+                  ),
                 ),
                 _statDivider(),
                 Expanded(
-                  child: _StatBlock(icon: Icons.circle_outlined, label: 'Head', value: headCircumference),
+                  child: _StatBlock(
+                    icon: Icons.circle_outlined,
+                    label: 'Head',
+                    value: headCircumference,
+                  ),
                 ),
               ],
             ),
@@ -685,7 +881,11 @@ class _ProfileHeroCard extends StatelessWidget {
 }
 
 class _StatBlock extends StatelessWidget {
-  const _StatBlock({required this.icon, required this.label, required this.value});
+  const _StatBlock({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
 
   final IconData icon;
   final String label;
@@ -699,12 +899,19 @@ class _StatBlock extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           value,
-          style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.w800, color: AuthPalette.textDark),
+          style: GoogleFonts.nunito(
+            fontSize: 13,
+            fontWeight: FontWeight.w800,
+            color: AuthPalette.textDark,
+          ),
         ),
         const SizedBox(height: 2),
         Text(
           label,
-          style: GoogleFonts.nunito(fontSize: 10.5, color: AuthPalette.textMuted),
+          style: GoogleFonts.nunito(
+            fontSize: 10.5,
+            color: AuthPalette.textMuted,
+          ),
         ),
       ],
     );
@@ -712,7 +919,11 @@ class _StatBlock extends StatelessWidget {
 }
 
 class _InfoRow extends StatelessWidget {
-  const _InfoRow({required this.icon, required this.label, required this.value});
+  const _InfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
 
   final IconData icon;
   final String label;
@@ -736,7 +947,10 @@ class _InfoRow extends StatelessWidget {
           const SizedBox(width: 12),
           Text(
             label,
-            style: GoogleFonts.nunito(fontSize: 13.5, color: AuthPalette.textMuted),
+            style: GoogleFonts.nunito(
+              fontSize: 13.5,
+              color: AuthPalette.textMuted,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -745,7 +959,11 @@ class _InfoRow extends StatelessWidget {
               textAlign: TextAlign.right,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.nunito(fontSize: 13.5, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+              style: GoogleFonts.nunito(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w700,
+                color: AuthPalette.textDark,
+              ),
             ),
           ),
         ],
@@ -759,7 +977,10 @@ class _InfoDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Divider(color: AuthPalette.lavenderMist.withValues(alpha: 0.4), height: 1);
+    return Divider(
+      color: AuthPalette.lavenderMist.withValues(alpha: 0.4),
+      height: 1,
+    );
   }
 }
 
@@ -782,25 +1003,46 @@ class _GrowthOverviewCard extends StatelessWidget {
         children: [
           Text(
             'Weight trend',
-            style: GoogleFonts.nunito(fontSize: 12, fontWeight: FontWeight.w700, color: AuthPalette.textMuted),
+            style: GoogleFonts.nunito(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: AuthPalette.textMuted,
+            ),
           ),
           const SizedBox(height: 10),
-          _MiniTrendChart(values: weightTrend, colors: const [AuthPalette.powderBlue, AuthPalette.mint]),
+          _MiniTrendChart(
+            values: weightTrend,
+            colors: const [AuthPalette.powderBlue, AuthPalette.mint],
+          ),
           const SizedBox(height: 18),
           Text(
             'Height trend',
-            style: GoogleFonts.nunito(fontSize: 12, fontWeight: FontWeight.w700, color: AuthPalette.textMuted),
+            style: GoogleFonts.nunito(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: AuthPalette.textMuted,
+            ),
           ),
           const SizedBox(height: 10),
-          _MiniTrendChart(values: heightTrend, colors: const [AuthPalette.softCoral, AuthPalette.lavenderMist]),
+          _MiniTrendChart(
+            values: heightTrend,
+            colors: const [AuthPalette.softCoral, AuthPalette.lavenderMist],
+          ),
           const SizedBox(height: 14),
           Row(
             children: [
-              const Icon(Icons.event_available_outlined, size: 15, color: AuthPalette.textMuted),
+              const Icon(
+                Icons.event_available_outlined,
+                size: 15,
+                color: AuthPalette.textMuted,
+              ),
               const SizedBox(width: 6),
               Text(
                 lastUpdatedLabel,
-                style: GoogleFonts.nunito(fontSize: 12, color: AuthPalette.textMuted),
+                style: GoogleFonts.nunito(
+                  fontSize: 12,
+                  color: AuthPalette.textMuted,
+                ),
               ),
             ],
           ),
@@ -875,10 +1117,38 @@ class _CareSummaryGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = <(_CareSummaryItem, String)>[
-      (const _CareSummaryItem(icon: Icons.bedtime_rounded, label: 'Avg Sleep', color: AuthPalette.lavenderMist), avgSleep),
-      (const _CareSummaryItem(icon: Icons.local_drink_rounded, label: 'Feedings Today', color: AuthPalette.powderBlue), feedingsToday),
-      (const _CareSummaryItem(icon: Icons.child_care_rounded, label: 'Diapers Today', color: AuthPalette.mint), diapersToday),
-      (const _CareSummaryItem(icon: Icons.graphic_eq_rounded, label: 'Cries Analyzed', color: AuthPalette.softCoral), criesAnalyzed),
+      (
+        const _CareSummaryItem(
+          icon: Icons.bedtime_rounded,
+          label: 'Avg Sleep',
+          color: AuthPalette.lavenderMist,
+        ),
+        avgSleep,
+      ),
+      (
+        const _CareSummaryItem(
+          icon: Icons.local_drink_rounded,
+          label: 'Feedings Today',
+          color: AuthPalette.powderBlue,
+        ),
+        feedingsToday,
+      ),
+      (
+        const _CareSummaryItem(
+          icon: Icons.child_care_rounded,
+          label: 'Diapers Today',
+          color: AuthPalette.mint,
+        ),
+        diapersToday,
+      ),
+      (
+        const _CareSummaryItem(
+          icon: Icons.graphic_eq_rounded,
+          label: 'Cries Analyzed',
+          color: AuthPalette.softCoral,
+        ),
+        criesAnalyzed,
+      ),
     ];
 
     return GridView.builder(
@@ -898,14 +1168,19 @@ class _CareSummaryGrid extends StatelessWidget {
           decoration: BoxDecoration(
             color: Colors.white.withValues(alpha: 0.9),
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: AuthPalette.lavenderMist.withValues(alpha: 0.4)),
+            border: Border.all(
+              color: AuthPalette.lavenderMist.withValues(alpha: 0.4),
+            ),
           ),
           child: Row(
             children: [
               Container(
                 width: 38,
                 height: 38,
-                decoration: BoxDecoration(color: item.color.withValues(alpha: 0.3), shape: BoxShape.circle),
+                decoration: BoxDecoration(
+                  color: item.color.withValues(alpha: 0.3),
+                  shape: BoxShape.circle,
+                ),
                 child: Icon(item.icon, size: 18, color: AuthPalette.textDark),
               ),
               const SizedBox(width: 10),
@@ -916,13 +1191,20 @@ class _CareSummaryGrid extends StatelessWidget {
                   children: [
                     Text(
                       value,
-                      style: GoogleFonts.quicksand(fontSize: 16, fontWeight: FontWeight.w800, color: AuthPalette.textDark),
+                      style: GoogleFonts.quicksand(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: AuthPalette.textDark,
+                      ),
                     ),
                     Text(
                       item.label,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.nunito(fontSize: 10.5, color: AuthPalette.textMuted),
+                      style: GoogleFonts.nunito(
+                        fontSize: 10.5,
+                        color: AuthPalette.textMuted,
+                      ),
                     ),
                   ],
                 ),
@@ -936,7 +1218,11 @@ class _CareSummaryGrid extends StatelessWidget {
 }
 
 class _CareSummaryItem {
-  const _CareSummaryItem({required this.icon, required this.label, required this.color});
+  const _CareSummaryItem({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
 
   final IconData icon;
   final String label;
@@ -967,7 +1253,10 @@ class _MedicalRow extends StatelessWidget {
           Container(
             width: 38,
             height: 38,
-            decoration: BoxDecoration(color: color.withValues(alpha: 0.3), shape: BoxShape.circle),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.3),
+              shape: BoxShape.circle,
+            ),
             child: Icon(icon, size: 18, color: AuthPalette.textDark),
           ),
           const SizedBox(width: 12),
@@ -977,11 +1266,18 @@ class _MedicalRow extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style: GoogleFonts.nunito(fontSize: 13.5, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+                  style: GoogleFonts.nunito(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w700,
+                    color: AuthPalette.textDark,
+                  ),
                 ),
                 Text(
                   detail,
-                  style: GoogleFonts.nunito(fontSize: 12, color: AuthPalette.textMuted),
+                  style: GoogleFonts.nunito(
+                    fontSize: 12,
+                    color: AuthPalette.textMuted,
+                  ),
                 ),
               ],
             ),
@@ -1001,7 +1297,11 @@ class _FamilySharingCard extends StatelessWidget {
 
   final VoidCallback onTap;
 
-  static const _avatarColors = [AuthPalette.softCoral, AuthPalette.powderBlue, AuthPalette.mint];
+  static const _avatarColors = [
+    AuthPalette.softCoral,
+    AuthPalette.powderBlue,
+    AuthPalette.mint,
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -1024,7 +1324,11 @@ class _FamilySharingCard extends StatelessWidget {
                     color: AuthPalette.lavenderMist.withValues(alpha: 0.32),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.family_restroom_rounded, size: 21, color: AuthPalette.textDark),
+                  child: const Icon(
+                    Icons.family_restroom_rounded,
+                    size: 21,
+                    color: AuthPalette.textDark,
+                  ),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
@@ -1033,12 +1337,19 @@ class _FamilySharingCard extends StatelessWidget {
                     children: [
                       Text(
                         'Family Sharing',
-                        style: GoogleFonts.quicksand(fontSize: 15.5, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+                        style: GoogleFonts.quicksand(
+                          fontSize: 15.5,
+                          fontWeight: FontWeight.w700,
+                          color: AuthPalette.textDark,
+                        ),
                       ),
                       const SizedBox(height: 2),
                       Text(
                         'Invite caregivers and manage access',
-                        style: GoogleFonts.nunito(fontSize: 12, color: AuthPalette.textMuted),
+                        style: GoogleFonts.nunito(
+                          fontSize: 12,
+                          color: AuthPalette.textMuted,
+                        ),
                       ),
                     ],
                   ),
@@ -1060,14 +1371,22 @@ class _FamilySharingCard extends StatelessWidget {
                               color: _avatarColors[i].withValues(alpha: 0.85),
                               border: Border.all(color: Colors.white, width: 2),
                             ),
-                            child: const Icon(Icons.person_rounded, size: 12, color: Colors.white),
+                            child: const Icon(
+                              Icons.person_rounded,
+                              size: 12,
+                              color: Colors.white,
+                            ),
                           ),
                         ),
                     ],
                   ),
                 ),
                 const SizedBox(width: 8),
-                const Icon(Icons.chevron_right_rounded, color: AuthPalette.textMuted, size: 22),
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  color: AuthPalette.textMuted,
+                  size: 22,
+                ),
               ],
             ),
           ),
@@ -1082,7 +1401,11 @@ class _MemoriesCard extends StatelessWidget {
 
   final VoidCallback onOpenGallery;
 
-  static const _accents = [AuthPalette.blushPink, AuthPalette.powderBlue, AuthPalette.mint];
+  static const _accents = [
+    AuthPalette.blushPink,
+    AuthPalette.powderBlue,
+    AuthPalette.mint,
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -1102,7 +1425,11 @@ class _MemoriesCard extends StatelessWidget {
                         color: _accents[i].withValues(alpha: 0.35),
                         borderRadius: BorderRadius.circular(18),
                       ),
-                      child: const Icon(Icons.photo_rounded, color: AuthPalette.textDark, size: 26),
+                      child: const Icon(
+                        Icons.photo_rounded,
+                        color: AuthPalette.textDark,
+                        size: 26,
+                      ),
                     ),
                   ),
                 ),
@@ -1147,7 +1474,11 @@ class _TwinModeCard extends StatelessWidget {
                       shape: BoxShape.circle,
                       color: AuthPalette.softCoral.withValues(alpha: 0.32),
                     ),
-                    child: const Icon(Icons.child_friendly_rounded, color: AuthPalette.softCoral, size: 28),
+                    child: const Icon(
+                      Icons.child_friendly_rounded,
+                      color: AuthPalette.softCoral,
+                      size: 28,
+                    ),
                   ),
                 ),
                 Align(
@@ -1177,13 +1508,21 @@ class _TwinModeCard extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             'Twin mode not enabled',
-            style: GoogleFonts.quicksand(fontSize: 15.5, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+            style: GoogleFonts.quicksand(
+              fontSize: 15.5,
+              fontWeight: FontWeight.w700,
+              color: AuthPalette.textDark,
+            ),
           ),
           const SizedBox(height: 4),
           Text(
             'Caring for twins? Turn on Twin Mode to track a sibling alongside ${BabyProfileStore.name}.',
             textAlign: TextAlign.center,
-            style: GoogleFonts.nunito(fontSize: 12.5, color: AuthPalette.textMuted, height: 1.4),
+            style: GoogleFonts.nunito(
+              fontSize: 12.5,
+              color: AuthPalette.textMuted,
+              height: 1.4,
+            ),
           ),
           const SizedBox(height: 14),
           AuthOutlineButton(
@@ -1200,11 +1539,22 @@ class _TwinModeCard extends StatelessWidget {
 }
 
 const _monthNames = <String>[
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
 ];
 
-String _formatEditDate(DateTime date) => '${date.day} ${_monthNames[date.month - 1]} ${date.year}';
+String _formatEditDate(DateTime date) =>
+    '${date.day} ${_monthNames[date.month - 1]} ${date.year}';
 
 /// Full-screen Edit Baby Profile page, reached from the Baby Profile
 /// screen's pen icon via `Navigator.push`. Reuses the same pastel design
@@ -1246,7 +1596,16 @@ class _EditBabyProfileScreen extends StatefulWidget {
 
 class _EditBabyProfileScreenState extends State<_EditBabyProfileScreen> {
   static const _genderOptions = <String>['Girl', 'Boy', 'Other'];
-  static const _bloodGroupOptions = <String>['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-'];
+  static const _bloodGroupOptions = <String>[
+    'O+',
+    'O-',
+    'A+',
+    'A-',
+    'B+',
+    'B-',
+    'AB+',
+    'AB-',
+  ];
 
   late final TextEditingController _nameController;
   late final TextEditingController _weightController;
@@ -1266,13 +1625,19 @@ class _EditBabyProfileScreenState extends State<_EditBabyProfileScreen> {
     _nameController = TextEditingController(text: widget.initialName);
     _weightController = TextEditingController(text: widget.initialWeight);
     _heightController = TextEditingController(text: widget.initialHeight);
-    _headCircumferenceController = TextEditingController(text: widget.initialHeadCircumference);
+    _headCircumferenceController = TextEditingController(
+      text: widget.initialHeadCircumference,
+    );
     _allergiesController = TextEditingController(text: widget.initialAllergies);
-    _pediatricianController = TextEditingController(text: widget.initialPediatrician);
+    _pediatricianController = TextEditingController(
+      text: widget.initialPediatrician,
+    );
     _hospitalController = TextEditingController(text: widget.initialHospital);
     _dateOfBirth = widget.initialDateOfBirth;
     _gender = widget.initialGender;
-    _bloodGroup = _bloodGroupOptions.contains(widget.initialBloodGroup) ? widget.initialBloodGroup : _bloodGroupOptions.first;
+    _bloodGroup = _bloodGroupOptions.contains(widget.initialBloodGroup)
+        ? widget.initialBloodGroup
+        : _bloodGroupOptions.first;
   }
 
   @override
@@ -1294,10 +1659,15 @@ class _EditBabyProfileScreenState extends State<_EditBabyProfileScreen> {
         SnackBar(
           behavior: SnackBarBehavior.floating,
           backgroundColor: AuthPalette.textDark,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
           content: Text(
             message,
-            style: GoogleFonts.nunito(color: Colors.white, fontWeight: FontWeight.w600),
+            style: GoogleFonts.nunito(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       );
@@ -1320,7 +1690,9 @@ class _EditBabyProfileScreenState extends State<_EditBabyProfileScreen> {
               onSurface: AuthPalette.textDark,
             ),
             textButtonTheme: TextButtonThemeData(
-              style: TextButton.styleFrom(foregroundColor: AuthPalette.softCoral),
+              style: TextButton.styleFrom(
+                foregroundColor: AuthPalette.softCoral,
+              ),
             ),
           ),
           child: child!,
@@ -1331,9 +1703,43 @@ class _EditBabyProfileScreenState extends State<_EditBabyProfileScreen> {
     setState(() => _dateOfBirth = picked);
   }
 
-  void _handleSave() {
-    _showToast('Profile updated (demo)');
-    Navigator.of(context).pop();
+  Future<void> _handleSave() async {
+    final id = BabyProfileStore.id;
+    final user = FirebaseAuthService().currentUser;
+    if (id == null || user == null) return;
+    double? measurement(TextEditingController controller) =>
+        double.tryParse(controller.text.trim().split(' ').first);
+    try {
+      final dio = Dio(BaseOptions(baseUrl: AppConfig.apiBaseUrl));
+      dio.options.headers['Authorization'] =
+          'Bearer ${await user.getIdToken()}';
+      final response = await dio.patch<Map<String, dynamic>>(
+        '/babies/$id',
+        data: {
+          'name': _nameController.text.trim(),
+          'birth_date': _dateOfBirth.toIso8601String().split('T').first,
+          'gender': _gender.toLowerCase() == 'other'
+              ? 'unspecified'
+              : _gender.toLowerCase(),
+          'blood_group': _bloodGroup,
+          'birth_weight_kg': measurement(_weightController),
+          'birth_length_cm': measurement(_heightController),
+          'head_circumference_cm': measurement(_headCircumferenceController),
+          'allergies': _allergiesController.text.trim(),
+          'pediatrician': _pediatricianController.text.trim(),
+          'hospital': _hospitalController.text.trim(),
+        },
+      );
+      if (!mounted) return;
+      final data = Map<String, dynamic>.from(response.data!['data'] as Map);
+      BabyProfileStore.babies = BabyProfileStore.babies
+          .map((baby) => baby['id'] == id ? data : baby)
+          .toList();
+      if (BabyProfileStore.id == id) BabyProfileStore.select(data);
+      Navigator.of(context).pop();
+    } catch (_) {
+      if (mounted) _showToast('Could not save changes. Please try again.');
+    }
   }
 
   @override
@@ -1355,7 +1761,9 @@ class _EditBabyProfileScreenState extends State<_EditBabyProfileScreen> {
                     children: [
                       Row(
                         children: [
-                          AuthBackButton(onPressed: () => Navigator.of(context).pop()),
+                          AuthBackButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                          ),
                           const Spacer(),
                         ],
                       ),
@@ -1372,7 +1780,10 @@ class _EditBabyProfileScreenState extends State<_EditBabyProfileScreen> {
                       ),
                       const SizedBox(height: 18),
                       Center(
-                        child: _AvatarPicker(onTap: () => _showToast('Photo picker is coming soon 🌙')),
+                        child: _AvatarPicker(
+                          onTap: () =>
+                              _showToast('Photo picker is coming soon 🌙'),
+                        ),
                       ),
                       const SizedBox(height: 22),
                       AuthCard(
@@ -1397,13 +1808,18 @@ class _EditBabyProfileScreenState extends State<_EditBabyProfileScreen> {
                             const SizedBox(height: 16),
                             Text(
                               'Gender',
-                              style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.w700, color: AuthPalette.textMuted),
+                              style: GoogleFonts.nunito(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: AuthPalette.textMuted,
+                              ),
                             ),
                             const SizedBox(height: 8),
                             _EditGenderSelector(
                               options: _genderOptions,
                               selected: _gender,
-                              onChanged: (value) => setState(() => _gender = value),
+                              onChanged: (value) =>
+                                  setState(() => _gender = value),
                             ),
                             const SizedBox(height: 16),
                             Row(
@@ -1446,13 +1862,23 @@ class _EditBabyProfileScreenState extends State<_EditBabyProfileScreen> {
                             const SizedBox(height: 16),
                             Text(
                               'Blood Group',
-                              style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.w700, color: AuthPalette.textMuted),
+                              style: GoogleFonts.nunito(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: AuthPalette.textMuted,
+                              ),
                             ),
                             const SizedBox(height: 8),
                             DropdownButtonFormField<String>(
                               initialValue: _bloodGroup,
-                              icon: const Icon(Icons.expand_more_rounded, color: AuthPalette.textMuted),
-                              style: GoogleFonts.nunito(fontSize: 15, color: AuthPalette.textDark),
+                              icon: const Icon(
+                                Icons.expand_more_rounded,
+                                color: AuthPalette.textMuted,
+                              ),
+                              style: GoogleFonts.nunito(
+                                fontSize: 15,
+                                color: AuthPalette.textDark,
+                              ),
                               decoration: authPastelDecoration(
                                 label: '',
                                 hint: 'Select blood group',
@@ -1460,17 +1886,24 @@ class _EditBabyProfileScreenState extends State<_EditBabyProfileScreen> {
                               ),
                               items: [
                                 for (final group in _bloodGroupOptions)
-                                  DropdownMenuItem(value: group, child: Text(group)),
+                                  DropdownMenuItem(
+                                    value: group,
+                                    child: Text(group),
+                                  ),
                               ],
                               onChanged: (value) {
-                                if (value != null) setState(() => _bloodGroup = value);
+                                if (value != null)
+                                  setState(() => _bloodGroup = value);
                               },
                             ),
                             const SizedBox(height: 14),
                             TextFormField(
                               controller: _allergiesController,
                               maxLines: 2,
-                              style: GoogleFonts.nunito(fontSize: 15, color: AuthPalette.textDark),
+                              style: GoogleFonts.nunito(
+                                fontSize: 15,
+                                color: AuthPalette.textDark,
+                              ),
                               cursorColor: AuthPalette.softCoral,
                               decoration: authPastelDecoration(
                                 label: 'Allergies',
@@ -1568,7 +2001,11 @@ class _AvatarPicker extends StatelessWidget {
                     ),
                   ],
                 ),
-                child: const Icon(Icons.child_friendly_rounded, color: AuthPalette.softCoral, size: 50),
+                child: const Icon(
+                  Icons.child_friendly_rounded,
+                  color: AuthPalette.softCoral,
+                  size: 50,
+                ),
               ),
               Positioned(
                 right: 0,
@@ -1581,7 +2018,11 @@ class _AvatarPicker extends StatelessWidget {
                     color: AuthPalette.softCoral,
                     border: Border.all(color: Colors.white, width: 2.5),
                   ),
-                  child: const Icon(Icons.photo_camera_rounded, color: Colors.white, size: 16),
+                  child: const Icon(
+                    Icons.photo_camera_rounded,
+                    color: Colors.white,
+                    size: 16,
+                  ),
                 ),
               ),
             ],
@@ -1593,7 +2034,11 @@ class _AvatarPicker extends StatelessWidget {
 }
 
 class _DatePickerField extends StatelessWidget {
-  const _DatePickerField({required this.label, required this.value, required this.onTap});
+  const _DatePickerField({
+    required this.label,
+    required this.value,
+    required this.onTap,
+  });
 
   final String label;
   final String value;
@@ -1607,23 +2052,41 @@ class _DatePickerField extends StatelessWidget {
       child: InputDecorator(
         decoration: InputDecoration(
           labelText: label,
-          labelStyle: GoogleFonts.nunito(color: AuthPalette.textMuted, fontSize: 14),
-          prefixIcon: const Icon(Icons.cake_outlined, color: AuthPalette.textMuted),
-          suffixIcon: const Icon(Icons.calendar_today_outlined, color: AuthPalette.textMuted, size: 18),
+          labelStyle: GoogleFonts.nunito(
+            color: AuthPalette.textMuted,
+            fontSize: 14,
+          ),
+          prefixIcon: const Icon(
+            Icons.cake_outlined,
+            color: AuthPalette.textMuted,
+          ),
+          suffixIcon: const Icon(
+            Icons.calendar_today_outlined,
+            color: AuthPalette.textMuted,
+            size: 18,
+          ),
           filled: true,
           fillColor: AuthPalette.blushPink.withValues(alpha: 0.28),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 16,
+          ),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(18),
             borderSide: BorderSide.none,
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(18),
-            borderSide: BorderSide(color: AuthPalette.lavenderMist.withValues(alpha: 0.7)),
+            borderSide: BorderSide(
+              color: AuthPalette.lavenderMist.withValues(alpha: 0.7),
+            ),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(18),
-            borderSide: const BorderSide(color: AuthPalette.softCoral, width: 2),
+            borderSide: const BorderSide(
+              color: AuthPalette.softCoral,
+              width: 2,
+            ),
           ),
         ),
         child: Text(
@@ -1636,7 +2099,11 @@ class _DatePickerField extends StatelessWidget {
 }
 
 class _EditGenderSelector extends StatelessWidget {
-  const _EditGenderSelector({required this.options, required this.selected, required this.onChanged});
+  const _EditGenderSelector({
+    required this.options,
+    required this.selected,
+    required this.onChanged,
+  });
 
   final List<String> options;
   final String selected;
@@ -1662,7 +2129,11 @@ class _EditGenderSelector extends StatelessWidget {
 }
 
 class _EditGenderChip extends StatelessWidget {
-  const _EditGenderChip({required this.label, required this.selected, required this.onTap});
+  const _EditGenderChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
 
   final String label;
   final bool selected;
@@ -1675,7 +2146,9 @@ class _EditGenderChip extends StatelessWidget {
       selected: selected,
       label: label,
       child: Material(
-        color: selected ? AuthPalette.softCoral : Colors.white.withValues(alpha: 0.85),
+        color: selected
+            ? AuthPalette.softCoral
+            : Colors.white.withValues(alpha: 0.85),
         borderRadius: BorderRadius.circular(16),
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
@@ -1685,7 +2158,9 @@ class _EditGenderChip extends StatelessWidget {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: selected ? Colors.transparent : AuthPalette.lavenderMist.withValues(alpha: 0.6),
+                color: selected
+                    ? Colors.transparent
+                    : AuthPalette.lavenderMist.withValues(alpha: 0.6),
               ),
             ),
             alignment: Alignment.center,

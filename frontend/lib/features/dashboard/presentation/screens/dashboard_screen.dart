@@ -35,7 +35,8 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProviderStateMixin {
+class _DashboardScreenState extends State<DashboardScreen>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _entranceController;
   late final Animation<double> _contentFade;
   late final Animation<Offset> _contentSlide;
@@ -52,7 +53,9 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
   static const _lastCryTime = '2 hours ago';
   static const _sleepSummary = '6h 45m today';
   static const _feedingSummary = '5 feeds • last at 2:30 PM';
-  static const _weightSummary = '6.2 kg (+0.3 kg)';
+  String get _weightSummary => BabyProfileStore.data['birth_weight_kg'] == null
+      ? 'Not recorded'
+      : "${BabyProfileStore.data['birth_weight_kg']} kg (registration)";
   static const _weightTrend = [5.4, 5.7, 5.9, 6.0, 6.2];
   static const _heightPercentile = 0.62;
   static const _lastMeasuredLabel = 'Last measured 5 days ago';
@@ -66,7 +69,12 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
   Future<void> _loadBabyProfile() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
-    if (mounted) setState(() => _parentName = user.displayName?.trim().isNotEmpty == true ? user.displayName!.trim() : 'Parent');
+    if (mounted)
+      setState(
+        () => _parentName = user.displayName?.trim().isNotEmpty == true
+            ? user.displayName!.trim()
+            : 'Parent',
+      );
     try {
       final token = await user.getIdToken();
       final dio = Dio(BaseOptions(baseUrl: AppConfig.apiBaseUrl));
@@ -82,7 +90,9 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
       final birthDate = DateTime.tryParse(baby['birth_date'] as String? ?? '');
       final age = birthDate == null ? 'Age unavailable' : _formatAge(birthDate);
       setState(() {
-        _babyName = name?.trim().isNotEmpty == true ? name!.trim() : 'Your baby';
+        _babyName = name?.trim().isNotEmpty == true
+            ? name!.trim()
+            : 'Your baby';
         _babyAgeLabel = age;
       });
       setState(() => _babies = babies);
@@ -98,24 +108,38 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
     final selected = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       builder: (context) => SafeArea(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const ListTile(title: Text('Switch baby'), subtitle: Text('Choose which profile is active')),
-          ..._babies.map((baby) => ListTile(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const ListTile(
+              title: Text('Switch baby'),
+              subtitle: Text('Choose which profile is active'),
+            ),
+            ..._babies.map(
+              (baby) => ListTile(
                 leading: const Icon(Icons.child_care_rounded),
                 title: Text((baby['name'] as String?) ?? 'Your baby'),
-                trailing: baby['id'] == BabyProfileStore.id ? const Icon(Icons.check) : null,
+                trailing: baby['id'] == BabyProfileStore.id
+                    ? const Icon(Icons.check)
+                    : null,
                 onTap: () => Navigator.pop(context, baby),
-              )),
-          const SizedBox(height: 8),
-        ]),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
       ),
     );
     if (!mounted || selected == null) return;
-    final birthDate = DateTime.tryParse(selected['birth_date'] as String? ?? '');
+    final birthDate = DateTime.tryParse(
+      selected['birth_date'] as String? ?? '',
+    );
     setState(() {
       BabyProfileStore.select(selected);
       _babyName = BabyProfileStore.name;
-      _babyAgeLabel = birthDate == null ? 'Age unavailable' : _formatAge(birthDate);
+      _babyAgeLabel = birthDate == null
+          ? 'Age unavailable'
+          : _formatAge(birthDate);
     });
   }
 
@@ -123,7 +147,8 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
     final now = DateTime.now();
     var months = (now.year - birthDate.year) * 12 + now.month - birthDate.month;
     if (now.day < birthDate.day) months--;
-    if (months < 1) return '${(now.difference(birthDate).inDays).clamp(0, 30)} days';
+    if (months < 1)
+      return '${(now.difference(birthDate).inDays).clamp(0, 30)} days';
     return '$months month${months == 1 ? '' : 's'}';
   }
 
@@ -138,15 +163,22 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
       parent: _entranceController,
       curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
     );
-    _contentSlide = Tween<Offset>(begin: const Offset(0, 0.04), end: Offset.zero).animate(
-      CurvedAnimation(parent: _entranceController, curve: const Interval(0.0, 0.6, curve: Curves.easeOutCubic)),
-    );
+    _contentSlide =
+        Tween<Offset>(begin: const Offset(0, 0.04), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _entranceController,
+            curve: const Interval(0.0, 0.6, curve: Curves.easeOutCubic),
+          ),
+        );
     _heroFade = CurvedAnimation(
       parent: _entranceController,
       curve: const Interval(0.1, 0.7, curve: Curves.easeOut),
     );
     _heroScale = Tween<double>(begin: 0.9, end: 1.0).animate(
-      CurvedAnimation(parent: _entranceController, curve: const Interval(0.1, 0.85, curve: Curves.easeOutBack)),
+      CurvedAnimation(
+        parent: _entranceController,
+        curve: const Interval(0.1, 0.85, curve: Curves.easeOutBack),
+      ),
     );
     _entranceController.forward();
   }
@@ -172,10 +204,15 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
         SnackBar(
           behavior: SnackBarBehavior.floating,
           backgroundColor: AuthPalette.textDark,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
           content: Text(
             '$feature is coming soon 🌙',
-            style: GoogleFonts.nunito(color: Colors.white, fontWeight: FontWeight.w600),
+            style: GoogleFonts.nunito(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       );
@@ -234,16 +271,21 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                                 babies: _babies,
                                 activeBabyId: BabyProfileStore.id,
                                 onBabySelected: (baby) {
-                                  final birthDate = DateTime.tryParse(baby['birth_date'] as String? ?? '');
+                                  final birthDate = DateTime.tryParse(
+                                    baby['birth_date'] as String? ?? '',
+                                  );
                                   setState(() {
                                     BabyProfileStore.select(baby);
                                     _babyName = BabyProfileStore.name;
-                                    _babyAgeLabel = birthDate == null ? 'Age unavailable' : _formatAge(birthDate);
+                                    _babyAgeLabel = birthDate == null
+                                        ? 'Age unavailable'
+                                        : _formatAge(birthDate);
                                   });
                                 },
                                 greeting: _greeting,
                                 unreadCount: _unreadNotifications,
-                                onBellTap: () => context.go(RoutePaths.notifications),
+                                onBellTap: () =>
+                                    context.go(RoutePaths.notifications),
                               ),
                               const SizedBox(height: 18),
                               FadeTransition(
@@ -267,12 +309,15 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                               const SizedBox(height: 10),
                               _QuickActionsGrid(onTap: _handleQuickAction),
                               const SizedBox(height: 14),
-                              _MilestonesQuickActionCard(onTap: () => context.go(RoutePaths.milestones)),
+                              _MilestonesQuickActionCard(
+                                onTap: () => context.go(RoutePaths.milestones),
+                              ),
                               const SizedBox(height: 22),
                               if (isWide)
                                 IntrinsicHeight(
                                   child: Row(
-                                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
                                     children: [
                                       Expanded(
                                         child: _GrowthSection(
@@ -282,7 +327,9 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                                         ),
                                       ),
                                       const SizedBox(width: 16),
-                                      const Expanded(child: _TodaysCareSection()),
+                                      const Expanded(
+                                        child: _TodaysCareSection(),
+                                      ),
                                     ],
                                   ),
                                 )
@@ -320,22 +367,22 @@ enum _BabyStatus { sleeping, awake, feeding }
 
 extension on _BabyStatus {
   String get label => switch (this) {
-        _BabyStatus.sleeping => 'Sleeping',
-        _BabyStatus.awake => 'Awake',
-        _BabyStatus.feeding => 'Feeding',
-      };
+    _BabyStatus.sleeping => 'Sleeping',
+    _BabyStatus.awake => 'Awake',
+    _BabyStatus.feeding => 'Feeding',
+  };
 
   IconData get icon => switch (this) {
-        _BabyStatus.sleeping => Icons.bedtime_rounded,
-        _BabyStatus.awake => Icons.wb_sunny_rounded,
-        _BabyStatus.feeding => Icons.local_drink_rounded,
-      };
+    _BabyStatus.sleeping => Icons.bedtime_rounded,
+    _BabyStatus.awake => Icons.wb_sunny_rounded,
+    _BabyStatus.feeding => Icons.local_drink_rounded,
+  };
 
   Color get color => switch (this) {
-        _BabyStatus.sleeping => AuthPalette.lavenderMist,
-        _BabyStatus.awake => AuthPalette.mint,
-        _BabyStatus.feeding => AuthPalette.powderBlue,
-      };
+    _BabyStatus.sleeping => AuthPalette.lavenderMist,
+    _BabyStatus.awake => AuthPalette.mint,
+    _BabyStatus.feeding => AuthPalette.powderBlue,
+  };
 }
 
 /// Dashboard-local "stars and clouds" ambient decoration, deliberately
@@ -346,7 +393,8 @@ class _DashboardFloatingDecor extends StatefulWidget {
   const _DashboardFloatingDecor();
 
   @override
-  State<_DashboardFloatingDecor> createState() => _DashboardFloatingDecorState();
+  State<_DashboardFloatingDecor> createState() =>
+      _DashboardFloatingDecorState();
 }
 
 class _DashboardFloatingDecorState extends State<_DashboardFloatingDecor>
@@ -354,18 +402,55 @@ class _DashboardFloatingDecorState extends State<_DashboardFloatingDecor>
   late final AnimationController _controller;
 
   static const _specs = <_DecorSpec>[
-    _DecorSpec(icon: Icons.star_rounded, top: 0.03, left: 0.08, size: 14, color: AuthPalette.softCoral, phase: 0.0),
-    _DecorSpec(icon: Icons.cloud_rounded, top: 0.06, left: 0.80, size: 26, color: AuthPalette.powderBlue, phase: 0.4),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.12, left: 0.92, size: 10, color: AuthPalette.mint, phase: 0.2),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.02, left: 0.45, size: 11, color: AuthPalette.lavenderMist, phase: 0.6),
-    _DecorSpec(icon: Icons.cloud_rounded, top: 0.20, left: 0.04, size: 20, color: AuthPalette.blushPink, phase: 0.1),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.03,
+      left: 0.08,
+      size: 14,
+      color: AuthPalette.softCoral,
+      phase: 0.0,
+    ),
+    _DecorSpec(
+      icon: Icons.cloud_rounded,
+      top: 0.06,
+      left: 0.80,
+      size: 26,
+      color: AuthPalette.powderBlue,
+      phase: 0.4,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.12,
+      left: 0.92,
+      size: 10,
+      color: AuthPalette.mint,
+      phase: 0.2,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.02,
+      left: 0.45,
+      size: 11,
+      color: AuthPalette.lavenderMist,
+      phase: 0.6,
+    ),
+    _DecorSpec(
+      icon: Icons.cloud_rounded,
+      top: 0.20,
+      left: 0.04,
+      size: 20,
+      color: AuthPalette.blushPink,
+      phase: 0.1,
+    ),
   ];
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(seconds: 4))
-      ..repeat(reverse: true);
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 4),
+    )..repeat(reverse: true);
   }
 
   @override
@@ -388,7 +473,12 @@ class _DashboardFloatingDecorState extends State<_DashboardFloatingDecor>
                   child: AnimatedBuilder(
                     animation: _controller,
                     builder: (context, child) {
-                      final t = (math.sin((_controller.value + spec.phase) * math.pi * 2) + 1) / 2;
+                      final t =
+                          (math.sin(
+                                (_controller.value + spec.phase) * math.pi * 2,
+                              ) +
+                              1) /
+                          2;
                       return Opacity(opacity: 0.08 + (t * 0.10), child: child);
                     },
                     child: Icon(spec.icon, size: spec.size, color: spec.color),
@@ -452,52 +542,61 @@ class _DashboardHeader extends StatelessWidget {
       children: [
         Row(
           children: [
-        Container(
-          width: 50,
-          height: 50,
-          decoration: const BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [AuthPalette.softCoral, AuthPalette.lavenderMist],
-            ),
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            parentName.isEmpty ? '?' : parentName[0],
-            style: GoogleFonts.quicksand(
-              fontSize: 20,
-              fontWeight: FontWeight.w800,
-              color: Colors.white,
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '$greeting, $parentName 👋',
-                style: GoogleFonts.quicksand(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: AuthPalette.textDark,
+            Container(
+              width: 50,
+              height: 50,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [AuthPalette.softCoral, AuthPalette.lavenderMist],
                 ),
-                overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(height: 2),
-              InkWell(
-                onTap: null,
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Text('$babyName • $babyAge', style: GoogleFonts.nunito(fontSize: 13.5, color: AuthPalette.textMuted)),
-                  const SizedBox.shrink(),
-                ]),
+              alignment: Alignment.center,
+              child: Text(
+                parentName.isEmpty ? '?' : parentName[0],
+                style: GoogleFonts.quicksand(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
+                ),
               ),
-            ],
-          ),
-        ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '$greeting, $parentName 👋',
+                    style: GoogleFonts.quicksand(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: AuthPalette.textDark,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  InkWell(
+                    onTap: null,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '$babyName • $babyAge',
+                          style: GoogleFonts.nunito(
+                            fontSize: 13.5,
+                            color: AuthPalette.textMuted,
+                          ),
+                        ),
+                        const SizedBox.shrink(),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
             _NotificationBell(unreadCount: unreadCount, onTap: onBellTap),
           ],
         ),
@@ -512,7 +611,9 @@ class _DashboardHeader extends StatelessWidget {
                   : 'Your baby';
               return Expanded(
                 child: Padding(
-                  padding: EdgeInsets.only(right: identical(baby, babies.take(2).last) ? 0 : 8),
+                  padding: EdgeInsets.only(
+                    right: identical(baby, babies.take(2).last) ? 0 : 8,
+                  ),
                   child: _BabyProfileChip(
                     name: name,
                     selected: selected,
@@ -529,7 +630,11 @@ class _DashboardHeader extends StatelessWidget {
 }
 
 class _BabyProfileChip extends StatelessWidget {
-  const _BabyProfileChip({required this.name, required this.selected, required this.onTap});
+  const _BabyProfileChip({
+    required this.name,
+    required this.selected,
+    required this.onTap,
+  });
   final String name;
   final bool selected;
   final VoidCallback onTap;
@@ -537,23 +642,49 @@ class _BabyProfileChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: selected ? AuthPalette.softCoral : Colors.white.withValues(alpha: 0.78),
+      color: selected
+          ? AuthPalette.softCoral
+          : Colors.white.withValues(alpha: 0.78),
       borderRadius: BorderRadius.circular(18),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(18),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-          child: Row(children: [
-            CircleAvatar(
-              radius: 17,
-              backgroundColor: selected ? Colors.white.withValues(alpha: 0.9) : AuthPalette.lavenderMist,
-              child: Icon(Icons.child_care_rounded, size: 20, color: selected ? AuthPalette.softCoral : AuthPalette.textDark),
-            ),
-            const SizedBox(width: 9),
-            Expanded(child: Text(name, overflow: TextOverflow.ellipsis, style: GoogleFonts.nunito(fontWeight: FontWeight.w800, color: selected ? Colors.white : AuthPalette.textDark))),
-            if (selected) const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
-          ]),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 17,
+                backgroundColor: selected
+                    ? Colors.white.withValues(alpha: 0.9)
+                    : AuthPalette.lavenderMist,
+                child: Icon(
+                  Icons.child_care_rounded,
+                  size: 20,
+                  color: selected
+                      ? AuthPalette.softCoral
+                      : AuthPalette.textDark,
+                ),
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  name,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.nunito(
+                    fontWeight: FontWeight.w800,
+                    color: selected ? Colors.white : AuthPalette.textDark,
+                  ),
+                ),
+              ),
+              if (selected)
+                const Icon(
+                  Icons.check_circle_rounded,
+                  color: Colors.white,
+                  size: 20,
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -570,7 +701,9 @@ class _NotificationBell extends StatelessWidget {
   Widget build(BuildContext context) {
     return Semantics(
       button: true,
-      label: unreadCount > 0 ? '$unreadCount unread notifications' : 'Notifications',
+      label: unreadCount > 0
+          ? '$unreadCount unread notifications'
+          : 'Notifications',
       child: Material(
         color: Colors.white.withValues(alpha: 0.75),
         shape: const CircleBorder(),
@@ -582,14 +715,21 @@ class _NotificationBell extends StatelessWidget {
             child: Stack(
               clipBehavior: Clip.none,
               children: [
-                const Icon(Icons.notifications_rounded, color: AuthPalette.textDark, size: 24),
+                const Icon(
+                  Icons.notifications_rounded,
+                  color: AuthPalette.textDark,
+                  size: 24,
+                ),
                 if (unreadCount > 0)
                   Positioned(
                     top: -4,
                     right: -4,
                     child: Container(
                       padding: const EdgeInsets.all(3),
-                      constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                      constraints: const BoxConstraints(
+                        minWidth: 16,
+                        minHeight: 16,
+                      ),
                       decoration: const BoxDecoration(
                         color: AuthPalette.softCoral,
                         shape: BoxShape.circle,
@@ -620,7 +760,9 @@ class _NotificationBell extends StatelessWidget {
 /// cards beneath it.
 BoxDecoration _pastelCardDecoration({Gradient? gradient, Color? color}) {
   return BoxDecoration(
-    color: gradient == null ? (color ?? Colors.white.withValues(alpha: 0.92)) : null,
+    color: gradient == null
+        ? (color ?? Colors.white.withValues(alpha: 0.92))
+        : null,
     gradient: gradient,
     borderRadius: BorderRadius.circular(28),
     border: Border.all(color: AuthPalette.lavenderMist.withValues(alpha: 0.5)),
@@ -693,7 +835,11 @@ class _BabyHeroCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                child: const Icon(Icons.child_friendly_rounded, color: AuthPalette.softCoral, size: 34),
+                child: const Icon(
+                  Icons.child_friendly_rounded,
+                  color: AuthPalette.softCoral,
+                  size: 34,
+                ),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -710,7 +856,10 @@ class _BabyHeroCard extends StatelessWidget {
                     ),
                     Text(
                       babyAge,
-                      style: GoogleFonts.nunito(fontSize: 13.5, color: AuthPalette.textMuted),
+                      style: GoogleFonts.nunito(
+                        fontSize: 13.5,
+                        color: AuthPalette.textMuted,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     _StatusChip(status: status),
@@ -722,11 +871,18 @@ class _BabyHeroCard extends StatelessWidget {
           const SizedBox(height: 10),
           Row(
             children: [
-              const Icon(Icons.graphic_eq_rounded, size: 16, color: AuthPalette.textMuted),
+              const Icon(
+                Icons.graphic_eq_rounded,
+                size: 16,
+                color: AuthPalette.textMuted,
+              ),
               const SizedBox(width: 6),
               Text(
                 'Last cry $lastCryTime',
-                style: GoogleFonts.nunito(fontSize: 12.5, color: AuthPalette.textMuted),
+                style: GoogleFonts.nunito(
+                  fontSize: 12.5,
+                  color: AuthPalette.textMuted,
+                ),
               ),
             ],
           ),
@@ -837,12 +993,19 @@ class _HeroStat extends StatelessWidget {
         Text(
           value,
           textAlign: TextAlign.center,
-          style: GoogleFonts.nunito(fontSize: 11.5, fontWeight: FontWeight.w800, color: AuthPalette.textDark),
+          style: GoogleFonts.nunito(
+            fontSize: 11.5,
+            fontWeight: FontWeight.w800,
+            color: AuthPalette.textDark,
+          ),
         ),
         const SizedBox(height: 2),
         Text(
           label,
-          style: GoogleFonts.nunito(fontSize: 10.5, color: AuthPalette.textMuted),
+          style: GoogleFonts.nunito(
+            fontSize: 10.5,
+            color: AuthPalette.textMuted,
+          ),
         ),
       ],
     );
@@ -860,7 +1023,11 @@ class _SectionHeading extends StatelessWidget {
       padding: const EdgeInsets.only(left: 4),
       child: Text(
         title,
-        style: GoogleFonts.quicksand(fontSize: 17, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+        style: GoogleFonts.quicksand(
+          fontSize: 17,
+          fontWeight: FontWeight.w700,
+          color: AuthPalette.textDark,
+        ),
       ),
     );
   }
@@ -875,12 +1042,36 @@ class _QuickActionsGrid extends StatelessWidget {
   final ValueChanged<String> onTap;
 
   static const _actions = <_QuickAction>[
-    _QuickAction(label: 'Analyze Cry', icon: Icons.graphic_eq_rounded, color: AuthPalette.softCoral),
-    _QuickAction(label: 'Feeding', icon: Icons.local_drink_rounded, color: AuthPalette.powderBlue),
-    _QuickAction(label: 'Sleep', icon: Icons.bedtime_rounded, color: AuthPalette.lavenderMist),
-    _QuickAction(label: 'Diaper', icon: Icons.child_care_rounded, color: AuthPalette.mint),
-    _QuickAction(label: 'Growth', icon: Icons.show_chart_rounded, color: AuthPalette.blushPink),
-    _QuickAction(label: 'Vaccinations', icon: Icons.vaccines_rounded, color: Color(0xFFEF6FA0)),
+    _QuickAction(
+      label: 'Analyze Cry',
+      icon: Icons.graphic_eq_rounded,
+      color: AuthPalette.softCoral,
+    ),
+    _QuickAction(
+      label: 'Feeding',
+      icon: Icons.local_drink_rounded,
+      color: AuthPalette.powderBlue,
+    ),
+    _QuickAction(
+      label: 'Sleep',
+      icon: Icons.bedtime_rounded,
+      color: AuthPalette.lavenderMist,
+    ),
+    _QuickAction(
+      label: 'Diaper',
+      icon: Icons.child_care_rounded,
+      color: AuthPalette.mint,
+    ),
+    _QuickAction(
+      label: 'Growth',
+      icon: Icons.show_chart_rounded,
+      color: AuthPalette.blushPink,
+    ),
+    _QuickAction(
+      label: 'Vaccinations',
+      icon: Icons.vaccines_rounded,
+      color: Color(0xFFEF6FA0),
+    ),
   ];
 
   @override
@@ -897,14 +1088,21 @@ class _QuickActionsGrid extends StatelessWidget {
       ),
       itemBuilder: (context, index) {
         final action = _actions[index];
-        return _QuickActionCard(action: action, onTap: () => onTap(action.label));
+        return _QuickActionCard(
+          action: action,
+          onTap: () => onTap(action.label),
+        );
       },
     );
   }
 }
 
 class _QuickAction {
-  const _QuickAction({required this.label, required this.icon, required this.color});
+  const _QuickAction({
+    required this.label,
+    required this.icon,
+    required this.color,
+  });
 
   final String label;
   final IconData icon;
@@ -943,7 +1141,9 @@ class _QuickActionCardState extends State<_QuickActionCard> {
           decoration: BoxDecoration(
             color: Colors.white.withValues(alpha: 0.9),
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: AuthPalette.lavenderMist.withValues(alpha: 0.4)),
+            border: Border.all(
+              color: AuthPalette.lavenderMist.withValues(alpha: 0.4),
+            ),
             boxShadow: [
               BoxShadow(
                 color: widget.action.color.withValues(alpha: 0.22),
@@ -970,7 +1170,11 @@ class _QuickActionCardState extends State<_QuickActionCard> {
                 textAlign: TextAlign.center,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.nunito(fontSize: 11.5, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+                style: GoogleFonts.nunito(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                  color: AuthPalette.textDark,
+                ),
               ),
             ],
           ),
@@ -990,10 +1194,12 @@ class _MilestonesQuickActionCard extends StatefulWidget {
   final VoidCallback onTap;
 
   @override
-  State<_MilestonesQuickActionCard> createState() => _MilestonesQuickActionCardState();
+  State<_MilestonesQuickActionCard> createState() =>
+      _MilestonesQuickActionCardState();
 }
 
-class _MilestonesQuickActionCardState extends State<_MilestonesQuickActionCard> {
+class _MilestonesQuickActionCardState
+    extends State<_MilestonesQuickActionCard> {
   static const _pastelGold = Color(0xFFFFD9A0);
   bool _pressed = false;
 
@@ -1001,7 +1207,8 @@ class _MilestonesQuickActionCardState extends State<_MilestonesQuickActionCard> 
   Widget build(BuildContext context) {
     return Semantics(
       button: true,
-      label: "Milestones, track Lily's developmental progress",
+      label:
+          "Milestones, track ${BabyProfileStore.name}'s developmental progress",
       child: GestureDetector(
         onTapDown: (_) => setState(() => _pressed = true),
         onTapCancel: () => setState(() => _pressed = false),
@@ -1016,7 +1223,9 @@ class _MilestonesQuickActionCardState extends State<_MilestonesQuickActionCard> 
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.9),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: AuthPalette.lavenderMist.withValues(alpha: 0.4)),
+              border: Border.all(
+                color: AuthPalette.lavenderMist.withValues(alpha: 0.4),
+              ),
               boxShadow: [
                 BoxShadow(
                   color: _pastelGold.withValues(alpha: 0.3),
@@ -1030,8 +1239,15 @@ class _MilestonesQuickActionCardState extends State<_MilestonesQuickActionCard> 
                 Container(
                   width: 56,
                   height: 56,
-                  decoration: BoxDecoration(color: _pastelGold.withValues(alpha: 0.35), shape: BoxShape.circle),
-                  child: const Icon(Icons.workspace_premium_rounded, color: AuthPalette.textDark, size: 28),
+                  decoration: BoxDecoration(
+                    color: _pastelGold.withValues(alpha: 0.35),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.workspace_premium_rounded,
+                    color: AuthPalette.textDark,
+                    size: 28,
+                  ),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
@@ -1041,20 +1257,31 @@ class _MilestonesQuickActionCardState extends State<_MilestonesQuickActionCard> 
                     children: [
                       Text(
                         'Milestones',
-                        style: GoogleFonts.quicksand(fontSize: 15.5, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+                        style: GoogleFonts.quicksand(
+                          fontSize: 15.5,
+                          fontWeight: FontWeight.w700,
+                          color: AuthPalette.textDark,
+                        ),
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        "Track Lily's developmental progress",
+                        "Track ${BabyProfileStore.name}'s developmental progress",
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.nunito(fontSize: 12, color: AuthPalette.textMuted),
+                        style: GoogleFonts.nunito(
+                          fontSize: 12,
+                          color: AuthPalette.textMuted,
+                        ),
                       ),
                     ],
                   ),
                 ),
                 const SizedBox(width: 8),
-                const Icon(Icons.chevron_right_rounded, color: AuthPalette.textMuted, size: 24),
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  color: AuthPalette.textMuted,
+                  size: 24,
+                ),
               ],
             ),
           ),
@@ -1087,13 +1314,21 @@ class _GrowthSection extends StatelessWidget {
           Row(
             children: [
               Expanded(child: _SectionHeading(title: 'Growth')),
-              Icon(Icons.trending_up_rounded, color: AuthPalette.mint, size: 20),
+              Icon(
+                Icons.trending_up_rounded,
+                color: AuthPalette.mint,
+                size: 20,
+              ),
             ],
           ),
           const SizedBox(height: 14),
           Text(
             'Weight trend',
-            style: GoogleFonts.nunito(fontSize: 12, fontWeight: FontWeight.w700, color: AuthPalette.textMuted),
+            style: GoogleFonts.nunito(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: AuthPalette.textMuted,
+            ),
           ),
           const SizedBox(height: 10),
           _MiniWeightChart(values: weightTrend),
@@ -1102,12 +1337,20 @@ class _GrowthSection extends StatelessWidget {
             children: [
               Text(
                 'Height percentile',
-                style: GoogleFonts.nunito(fontSize: 12, fontWeight: FontWeight.w700, color: AuthPalette.textMuted),
+                style: GoogleFonts.nunito(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: AuthPalette.textMuted,
+                ),
               ),
               const Spacer(),
               Text(
                 '${(heightPercentile * 100).round()}th',
-                style: GoogleFonts.nunito(fontSize: 12, fontWeight: FontWeight.w800, color: AuthPalette.textDark),
+                style: GoogleFonts.nunito(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: AuthPalette.textDark,
+                ),
               ),
             ],
           ),
@@ -1116,11 +1359,18 @@ class _GrowthSection extends StatelessWidget {
           const SizedBox(height: 14),
           Row(
             children: [
-              const Icon(Icons.event_available_outlined, size: 15, color: AuthPalette.textMuted),
+              const Icon(
+                Icons.event_available_outlined,
+                size: 15,
+                color: AuthPalette.textMuted,
+              ),
               const SizedBox(width: 6),
               Text(
                 lastMeasuredLabel,
-                style: GoogleFonts.nunito(fontSize: 12, color: AuthPalette.textMuted),
+                style: GoogleFonts.nunito(
+                  fontSize: 12,
+                  color: AuthPalette.textMuted,
+                ),
               ),
             ],
           ),
@@ -1189,7 +1439,10 @@ class _HeightProgressBar extends StatelessWidget {
       borderRadius: BorderRadius.circular(10),
       child: Stack(
         children: [
-          Container(height: 12, color: AuthPalette.lavenderMist.withValues(alpha: 0.3)),
+          Container(
+            height: 12,
+            color: AuthPalette.lavenderMist.withValues(alpha: 0.3),
+          ),
           TweenAnimationBuilder<double>(
             tween: Tween(begin: 0, end: value),
             duration: const Duration(milliseconds: 900),
@@ -1290,7 +1543,10 @@ class _CareReminderTile extends StatelessWidget {
           Container(
             width: 38,
             height: 38,
-            decoration: BoxDecoration(color: item.color.withValues(alpha: 0.3), shape: BoxShape.circle),
+            decoration: BoxDecoration(
+              color: item.color.withValues(alpha: 0.3),
+              shape: BoxShape.circle,
+            ),
             child: Icon(item.icon, size: 18, color: AuthPalette.textDark),
           ),
           const SizedBox(width: 12),
@@ -1300,11 +1556,18 @@ class _CareReminderTile extends StatelessWidget {
               children: [
                 Text(
                   item.title,
-                  style: GoogleFonts.nunito(fontSize: 13.5, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+                  style: GoogleFonts.nunito(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w700,
+                    color: AuthPalette.textDark,
+                  ),
                 ),
                 Text(
                   item.detail,
-                  style: GoogleFonts.nunito(fontSize: 12, color: AuthPalette.textMuted),
+                  style: GoogleFonts.nunito(
+                    fontSize: 12,
+                    color: AuthPalette.textMuted,
+                  ),
                 ),
               ],
             ),
@@ -1359,7 +1622,10 @@ class _ActivityTimeline extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           for (var i = 0; i < _events.length; i++)
-            _ActivityTimelineTile(event: _events[i], isLast: i == _events.length - 1),
+            _ActivityTimelineTile(
+              event: _events[i],
+              isLast: i == _events.length - 1,
+            ),
         ],
       ),
     );
@@ -1399,7 +1665,10 @@ class _ActivityTimelineTile extends StatelessWidget {
               Container(
                 width: 34,
                 height: 34,
-                decoration: BoxDecoration(color: event.color.withValues(alpha: 0.32), shape: BoxShape.circle),
+                decoration: BoxDecoration(
+                  color: event.color.withValues(alpha: 0.32),
+                  shape: BoxShape.circle,
+                ),
                 child: Icon(event.icon, size: 16, color: AuthPalette.textDark),
               ),
               if (!isLast)
@@ -1433,14 +1702,20 @@ class _ActivityTimelineTile extends StatelessWidget {
                         ),
                         Text(
                           event.detail,
-                          style: GoogleFonts.nunito(fontSize: 12, color: AuthPalette.textMuted),
+                          style: GoogleFonts.nunito(
+                            fontSize: 12,
+                            color: AuthPalette.textMuted,
+                          ),
                         ),
                       ],
                     ),
                   ),
                   Text(
                     event.time,
-                    style: GoogleFonts.nunito(fontSize: 11, color: AuthPalette.textMuted),
+                    style: GoogleFonts.nunito(
+                      fontSize: 11,
+                      color: AuthPalette.textMuted,
+                    ),
                   ),
                 ],
               ),
