@@ -3,7 +3,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -81,4 +81,25 @@ async def update_baby(
     await session.commit()
     await session.refresh(baby)
     return SuccessResponse(data=BabyResponse.model_validate(baby))
+
+
+@router.put('/{baby_id}/trackers/{kind}', response_model=SuccessResponse)
+async def save_tracker(
+    baby_id: UUID,
+    kind: str,
+    entries: Annotated[list[dict], Body(max_length=5000)],
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> SuccessResponse:
+    if kind not in {'feeding', 'sleep', 'diaper', 'growth', 'milestones', 'memories'}:
+        raise HTTPException(status_code=400, detail='Unknown tracker.')
+    result = await session.execute(select(Baby).where(
+        Baby.id == baby_id, Baby.owner_user_id == user.id
+    ).with_for_update())
+    baby = result.scalar_one_or_none()
+    if baby is None:
+        raise _not_found()
+    baby.tracker_data = {**(baby.tracker_data or {}), kind: entries}
+    await session.commit()
+    return SuccessResponse(data=entries)
 

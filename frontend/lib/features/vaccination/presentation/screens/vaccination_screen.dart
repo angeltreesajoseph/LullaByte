@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/router/route_paths.dart';
+import '../../../baby_management/application/baby_profile_store.dart';
 import '../../../authentication/presentation/widgets/auth_background.dart';
 import '../../../authentication/presentation/widgets/auth_form_controls.dart';
 import '../../../authentication/presentation/widgets/auth_palette.dart';
@@ -13,22 +14,22 @@ enum _VaccineStatus { done, upcoming, pending }
 
 extension _VaccineStatusX on _VaccineStatus {
   String get label => switch (this) {
-        _VaccineStatus.done => 'Done',
-        _VaccineStatus.upcoming => 'Upcoming',
-        _VaccineStatus.pending => 'Pending',
-      };
+    _VaccineStatus.done => 'Done',
+    _VaccineStatus.upcoming => 'Upcoming',
+    _VaccineStatus.pending => 'Pending',
+  };
 
   Color get color => switch (this) {
-        _VaccineStatus.done => AuthPalette.mint,
-        _VaccineStatus.upcoming => AuthPalette.powderBlue,
-        _VaccineStatus.pending => AuthPalette.blushPink,
-      };
+    _VaccineStatus.done => AuthPalette.mint,
+    _VaccineStatus.upcoming => AuthPalette.powderBlue,
+    _VaccineStatus.pending => AuthPalette.blushPink,
+  };
 
   IconData get icon => switch (this) {
-        _VaccineStatus.done => Icons.check_circle_rounded,
-        _VaccineStatus.upcoming => Icons.schedule_rounded,
-        _VaccineStatus.pending => Icons.hourglass_empty_rounded,
-      };
+    _VaccineStatus.done => Icons.check_circle_rounded,
+    _VaccineStatus.upcoming => Icons.schedule_rounded,
+    _VaccineStatus.pending => Icons.hourglass_empty_rounded,
+  };
 }
 
 class _VaccineRecord {
@@ -71,94 +72,25 @@ class VaccinationScreen extends StatefulWidget {
   State<VaccinationScreen> createState() => _VaccinationScreenState();
 }
 
-class _VaccinationScreenState extends State<VaccinationScreen> with SingleTickerProviderStateMixin {
+class _VaccinationScreenState extends State<VaccinationScreen>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _entranceController;
   late final Animation<double> _contentFade;
   late final Animation<Offset> _contentSlide;
   late final Animation<double> _headerFade;
   late final Animation<double> _headerScale;
 
-  static const _babyName = 'Lily';
+  String get _babyName => BabyProfileStore.name;
 
-  static const _vaccines = <_VaccineRecord>[
-    _VaccineRecord(
-      name: 'BCG',
-      recommendedAge: 'At birth',
-      dateLabel: 'Given 15 Mar 2026',
-      status: _VaccineStatus.done,
-      description: 'A single shot given shortly after birth to build early protection against tuberculosis.',
-      protectsAgainst: 'Tuberculosis (TB)',
-      sideEffects: 'Small red bump at the injection site; a mild scar forms as it heals.',
-      doseNumber: 'Dose 1 of 1',
-    ),
-    _VaccineRecord(
-      name: 'Hepatitis B',
-      recommendedAge: 'At birth',
-      dateLabel: 'Given 15 Mar 2026',
-      status: _VaccineStatus.done,
-      description: 'Protects the liver from hepatitis B infection. This is the first of three doses.',
-      protectsAgainst: 'Hepatitis B',
-      sideEffects: 'Mild soreness at the injection site; rarely, a low-grade fever.',
-      doseNumber: 'Dose 1 of 3',
-    ),
-    _VaccineRecord(
-      name: 'DTP 1',
-      recommendedAge: '6 weeks',
-      dateLabel: 'Given 26 Apr 2026',
-      status: _VaccineStatus.done,
-      description: 'First dose of the combined vaccine protecting against three serious bacterial infections.',
-      protectsAgainst: 'Diphtheria, Tetanus, Pertussis (Whooping Cough)',
-      sideEffects: 'Mild fever, fussiness, or swelling at the injection site for a day or two.',
-      doseNumber: 'Dose 1 of 3',
-    ),
-    _VaccineRecord(
-      name: 'DTP 2',
-      recommendedAge: '10 weeks',
-      dateLabel: 'Due 5 Aug 2026',
-      status: _VaccineStatus.upcoming,
-      description: 'Second dose, boosting the immunity built by the first shot.',
-      protectsAgainst: 'Diphtheria, Tetanus, Pertussis (Whooping Cough)',
-      sideEffects: 'Similar to Dose 1 — mild fever and irritability are common.',
-      doseNumber: 'Dose 2 of 3',
-    ),
-    _VaccineRecord(
-      name: 'PCV 1',
-      recommendedAge: '6 weeks',
-      dateLabel: 'Due 12 Aug 2026',
-      status: _VaccineStatus.pending,
-      description: 'Pneumococcal conjugate vaccine protecting against serious bacterial infections.',
-      protectsAgainst: 'Pneumonia, Meningitis, Ear infections',
-      sideEffects: 'Redness or tenderness at the injection site; mild fussiness.',
-      doseNumber: 'Dose 1 of 3',
-    ),
-    _VaccineRecord(
-      name: 'Rotavirus 2',
-      recommendedAge: '10 weeks',
-      dateLabel: 'Due 19 Aug 2026',
-      status: _VaccineStatus.pending,
-      description: 'Oral drops that protect against severe rotavirus diarrhoea, a common cause of dehydration in infants.',
-      protectsAgainst: 'Rotavirus (severe diarrhoea & vomiting)',
-      sideEffects: 'Mild fussiness; rarely, mild diarrhoea for a day.',
-      doseNumber: 'Dose 2 of 3',
-    ),
-    _VaccineRecord(
-      name: 'MMR',
-      recommendedAge: '9 months',
-      dateLabel: 'Due 15 Dec 2026',
-      status: _VaccineStatus.pending,
-      description: 'Combined vaccine protecting against three common childhood viral infections.',
-      protectsAgainst: 'Measles, Mumps, Rubella',
-      sideEffects: 'Mild rash or low fever 1–2 weeks after the shot in some babies.',
-      doseNumber: 'Dose 1 of 2',
-    ),
-  ];
+  static const _vaccines = <_VaccineRecord>[];
 
-  static const _nextAppointmentVaccine = 'DTP — Dose 2';
-  static const _nextAppointmentDate = '5 August 2026';
-  static const _nextAppointmentTime = '10:30 AM';
-  static const _nextAppointmentPediatrician = 'Dr. Meera Nair';
+  static const _nextAppointmentVaccine = 'Not recorded';
+  static const _nextAppointmentDate = 'Not recorded';
+  static const _nextAppointmentTime = 'Not recorded';
+  static const _nextAppointmentPediatrician = 'Not recorded';
 
-  int get _doneCount => _vaccines.where((v) => v.status == _VaccineStatus.done).length;
+  int get _doneCount =>
+      _vaccines.where((v) => v.status == _VaccineStatus.done).length;
   int get _totalCount => _vaccines.length;
 
   @override
@@ -172,15 +104,22 @@ class _VaccinationScreenState extends State<VaccinationScreen> with SingleTicker
       parent: _entranceController,
       curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
     );
-    _contentSlide = Tween<Offset>(begin: const Offset(0, 0.04), end: Offset.zero).animate(
-      CurvedAnimation(parent: _entranceController, curve: const Interval(0.0, 0.6, curve: Curves.easeOutCubic)),
-    );
+    _contentSlide =
+        Tween<Offset>(begin: const Offset(0, 0.04), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _entranceController,
+            curve: const Interval(0.0, 0.6, curve: Curves.easeOutCubic),
+          ),
+        );
     _headerFade = CurvedAnimation(
       parent: _entranceController,
       curve: const Interval(0.1, 0.6, curve: Curves.easeOut),
     );
     _headerScale = Tween<double>(begin: 0.9, end: 1.0).animate(
-      CurvedAnimation(parent: _entranceController, curve: const Interval(0.1, 0.8, curve: Curves.easeOutBack)),
+      CurvedAnimation(
+        parent: _entranceController,
+        curve: const Interval(0.1, 0.8, curve: Curves.easeOutBack),
+      ),
     );
   }
 
@@ -197,10 +136,15 @@ class _VaccinationScreenState extends State<VaccinationScreen> with SingleTicker
         SnackBar(
           behavior: SnackBarBehavior.floating,
           backgroundColor: AuthPalette.textDark,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
           content: Text(
             message,
-            style: GoogleFonts.nunito(color: Colors.white, fontWeight: FontWeight.w600),
+            style: GoogleFonts.nunito(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       );
@@ -238,7 +182,10 @@ class _VaccinationScreenState extends State<VaccinationScreen> with SingleTicker
                         children: [
                           Row(
                             children: [
-                              AuthBackButton(onPressed: () => context.go(RoutePaths.dashboard)),
+                              AuthBackButton(
+                                onPressed: () =>
+                                    context.go(RoutePaths.dashboard),
+                              ),
                               const Spacer(),
                             ],
                           ),
@@ -264,7 +211,8 @@ class _VaccinationScreenState extends State<VaccinationScreen> with SingleTicker
                                   if (i > 0) const _InfoDivider(),
                                   _VaccineTimelineItem(
                                     vaccine: _vaccines[i],
-                                    onTap: () => _openVaccineDetails(_vaccines[i]),
+                                    onTap: () =>
+                                        _openVaccineDetails(_vaccines[i]),
                                   ),
                                 ],
                               ],
@@ -278,13 +226,15 @@ class _VaccinationScreenState extends State<VaccinationScreen> with SingleTicker
                             dateLabel: _nextAppointmentDate,
                             timeLabel: _nextAppointmentTime,
                             pediatrician: _nextAppointmentPediatrician,
-                            onSetReminder: () => _showToast('Reminders are coming soon 🌙'),
+                            onSetReminder: () =>
+                                _showToast('Reminders are coming soon 🌙'),
                           ),
                           const SizedBox(height: 26),
                           AuthPrimaryButton(
                             label: 'Add Vaccination',
                             isLoading: false,
-                            onPressed: () => _showToast('Add Vaccination is coming soon 🌙'),
+                            onPressed: () =>
+                                _showToast('Add Vaccination is coming soon 🌙'),
                           ),
                         ],
                       ),
@@ -308,7 +258,8 @@ class _VaccinationFloatingDecor extends StatefulWidget {
   const _VaccinationFloatingDecor();
 
   @override
-  State<_VaccinationFloatingDecor> createState() => _VaccinationFloatingDecorState();
+  State<_VaccinationFloatingDecor> createState() =>
+      _VaccinationFloatingDecorState();
 }
 
 class _VaccinationFloatingDecorState extends State<_VaccinationFloatingDecor>
@@ -316,19 +267,63 @@ class _VaccinationFloatingDecorState extends State<_VaccinationFloatingDecor>
   late final AnimationController _controller;
 
   static const _specs = <_DecorSpec>[
-    _DecorSpec(icon: Icons.star_rounded, top: 0.04, left: 0.10, size: 12, color: AuthPalette.softCoral, phase: 0.0),
-    _DecorSpec(icon: Icons.cloud_rounded, top: 0.06, left: 0.86, size: 20, color: AuthPalette.powderBlue, phase: 0.4),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.20, left: 0.92, size: 10, color: AuthPalette.mint, phase: 0.25),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.28, left: 0.05, size: 11, color: AuthPalette.lavenderMist, phase: 0.6),
-    _DecorSpec(icon: Icons.cloud_rounded, top: 0.55, left: 0.06, size: 16, color: AuthPalette.blushPink, phase: 0.15),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.72, left: 0.90, size: 12, color: AuthPalette.softCoral, phase: 0.5),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.04,
+      left: 0.10,
+      size: 12,
+      color: AuthPalette.softCoral,
+      phase: 0.0,
+    ),
+    _DecorSpec(
+      icon: Icons.cloud_rounded,
+      top: 0.06,
+      left: 0.86,
+      size: 20,
+      color: AuthPalette.powderBlue,
+      phase: 0.4,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.20,
+      left: 0.92,
+      size: 10,
+      color: AuthPalette.mint,
+      phase: 0.25,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.28,
+      left: 0.05,
+      size: 11,
+      color: AuthPalette.lavenderMist,
+      phase: 0.6,
+    ),
+    _DecorSpec(
+      icon: Icons.cloud_rounded,
+      top: 0.55,
+      left: 0.06,
+      size: 16,
+      color: AuthPalette.blushPink,
+      phase: 0.15,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.72,
+      left: 0.90,
+      size: 12,
+      color: AuthPalette.softCoral,
+      phase: 0.5,
+    ),
   ];
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(seconds: 4))
-      ..repeat(reverse: true);
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 4),
+    )..repeat(reverse: true);
   }
 
   @override
@@ -351,7 +346,12 @@ class _VaccinationFloatingDecorState extends State<_VaccinationFloatingDecor>
                   child: AnimatedBuilder(
                     animation: _controller,
                     builder: (context, child) {
-                      final t = (math.sin((_controller.value + spec.phase) * math.pi * 2) + 1) / 2;
+                      final t =
+                          (math.sin(
+                                (_controller.value + spec.phase) * math.pi * 2,
+                              ) +
+                              1) /
+                          2;
                       return Opacity(opacity: 0.07 + (t * 0.09), child: child);
                     },
                     child: Icon(spec.icon, size: spec.size, color: spec.color),
@@ -394,7 +394,11 @@ class _SectionHeading extends StatelessWidget {
       padding: const EdgeInsets.only(left: 4),
       child: Text(
         title,
-        style: GoogleFonts.quicksand(fontSize: 17, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+        style: GoogleFonts.quicksand(
+          fontSize: 17,
+          fontWeight: FontWeight.w700,
+          color: AuthPalette.textDark,
+        ),
       ),
     );
   }
@@ -405,12 +409,19 @@ class _InfoDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Divider(color: AuthPalette.lavenderMist.withValues(alpha: 0.4), height: 1);
+    return Divider(
+      color: AuthPalette.lavenderMist.withValues(alpha: 0.4),
+      height: 1,
+    );
   }
 }
 
 class _VaccinationHeaderCard extends StatelessWidget {
-  const _VaccinationHeaderCard({required this.babyName, required this.doneCount, required this.totalCount});
+  _VaccinationHeaderCard({
+    required this.babyName,
+    required this.doneCount,
+    required this.totalCount,
+  });
 
   final String babyName;
   final int doneCount;
@@ -433,7 +444,9 @@ class _VaccinationHeaderCard extends StatelessWidget {
           ],
         ),
         borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: AuthPalette.lavenderMist.withValues(alpha: 0.5)),
+        border: Border.all(
+          color: AuthPalette.lavenderMist.withValues(alpha: 0.5),
+        ),
         boxShadow: [
           BoxShadow(
             color: AuthPalette.softCoral.withValues(alpha: 0.14),
@@ -468,7 +481,11 @@ class _VaccinationHeaderCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                child: const Icon(Icons.vaccines_rounded, color: AuthPalette.softCoral, size: 30),
+                child: const Icon(
+                  Icons.vaccines_rounded,
+                  color: AuthPalette.softCoral,
+                  size: 30,
+                ),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -486,7 +503,10 @@ class _VaccinationHeaderCard extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       "$babyName's immunisation record",
-                      style: GoogleFonts.nunito(fontSize: 13.5, color: AuthPalette.textMuted),
+                      style: GoogleFonts.nunito(
+                        fontSize: 13.5,
+                        color: AuthPalette.textMuted,
+                      ),
                     ),
                   ],
                 ),
@@ -516,7 +536,10 @@ class _VaccinationHeaderCard extends StatelessWidget {
                     const Spacer(),
                     Text(
                       '$remaining remaining',
-                      style: GoogleFonts.nunito(fontSize: 12, color: AuthPalette.textMuted),
+                      style: GoogleFonts.nunito(
+                        fontSize: 12,
+                        color: AuthPalette.textMuted,
+                      ),
                     ),
                   ],
                 ),
@@ -531,8 +554,12 @@ class _VaccinationHeaderCard extends StatelessWidget {
                       return LinearProgressIndicator(
                         value: value,
                         minHeight: 10,
-                        backgroundColor: AuthPalette.lavenderMist.withValues(alpha: 0.35),
-                        valueColor: const AlwaysStoppedAnimation(AuthPalette.mint),
+                        backgroundColor: AuthPalette.lavenderMist.withValues(
+                          alpha: 0.35,
+                        ),
+                        valueColor: const AlwaysStoppedAnimation(
+                          AuthPalette.mint,
+                        ),
                       );
                     },
                   ),
@@ -566,7 +593,11 @@ class _StatusChip extends StatelessWidget {
           const SizedBox(width: 5),
           Text(
             status.label,
-            style: GoogleFonts.nunito(fontSize: 11.5, fontWeight: FontWeight.w800, color: AuthPalette.textDark),
+            style: GoogleFonts.nunito(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w800,
+              color: AuthPalette.textDark,
+            ),
           ),
         ],
       ),
@@ -599,7 +630,11 @@ class _VaccineTimelineItem extends StatelessWidget {
                   color: vaccine.status.color.withValues(alpha: 0.3),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.vaccines_outlined, size: 18, color: AuthPalette.textDark),
+                child: const Icon(
+                  Icons.vaccines_outlined,
+                  size: 18,
+                  color: AuthPalette.textDark,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -608,12 +643,19 @@ class _VaccineTimelineItem extends StatelessWidget {
                   children: [
                     Text(
                       vaccine.name,
-                      style: GoogleFonts.nunito(fontSize: 14, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+                      style: GoogleFonts.nunito(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: AuthPalette.textDark,
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       '${vaccine.recommendedAge} · ${vaccine.dateLabel}',
-                      style: GoogleFonts.nunito(fontSize: 12, color: AuthPalette.textMuted),
+                      style: GoogleFonts.nunito(
+                        fontSize: 12,
+                        color: AuthPalette.textMuted,
+                      ),
                     ),
                   ],
                 ),
@@ -621,7 +663,11 @@ class _VaccineTimelineItem extends StatelessWidget {
               const SizedBox(width: 8),
               _StatusChip(status: vaccine.status),
               const SizedBox(width: 4),
-              const Icon(Icons.chevron_right_rounded, color: AuthPalette.textMuted, size: 20),
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: AuthPalette.textMuted,
+                size: 20,
+              ),
             ],
           ),
         ),
@@ -660,23 +706,40 @@ class _NextAppointmentCard extends StatelessWidget {
                   color: AuthPalette.powderBlue.withValues(alpha: 0.32),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.event_available_rounded, color: AuthPalette.textDark, size: 20),
+                child: const Icon(
+                  Icons.event_available_rounded,
+                  color: AuthPalette.textDark,
+                  size: 20,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
                   vaccineName,
-                  style: GoogleFonts.quicksand(fontSize: 16.5, fontWeight: FontWeight.w800, color: AuthPalette.textDark),
+                  style: GoogleFonts.quicksand(
+                    fontSize: 16.5,
+                    fontWeight: FontWeight.w800,
+                    color: AuthPalette.textDark,
+                  ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 14),
-          _AppointmentDetailRow(icon: Icons.calendar_today_outlined, label: dateLabel),
+          _AppointmentDetailRow(
+            icon: Icons.calendar_today_outlined,
+            label: dateLabel,
+          ),
           const SizedBox(height: 8),
-          _AppointmentDetailRow(icon: Icons.access_time_rounded, label: timeLabel),
+          _AppointmentDetailRow(
+            icon: Icons.access_time_rounded,
+            label: timeLabel,
+          ),
           const SizedBox(height: 8),
-          _AppointmentDetailRow(icon: Icons.medical_services_outlined, label: pediatrician),
+          _AppointmentDetailRow(
+            icon: Icons.medical_services_outlined,
+            label: pediatrician,
+          ),
           const SizedBox(height: 16),
           AuthOutlineButton(
             label: 'Set Reminder',
@@ -727,7 +790,9 @@ class _VaccineDetailSheet extends StatelessWidget {
         decoration: BoxDecoration(
           color: AuthPalette.warmCream,
           borderRadius: BorderRadius.circular(28),
-          border: Border.all(color: AuthPalette.lavenderMist.withValues(alpha: 0.5)),
+          border: Border.all(
+            color: AuthPalette.lavenderMist.withValues(alpha: 0.5),
+          ),
           boxShadow: [
             BoxShadow(
               color: AuthPalette.softCoral.withValues(alpha: 0.18),
@@ -761,7 +826,11 @@ class _VaccineDetailSheet extends StatelessWidget {
                     color: vaccine.status.color.withValues(alpha: 0.32),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.vaccines_rounded, color: AuthPalette.textDark, size: 22),
+                  child: const Icon(
+                    Icons.vaccines_rounded,
+                    color: AuthPalette.textDark,
+                    size: 22,
+                  ),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
@@ -770,12 +839,19 @@ class _VaccineDetailSheet extends StatelessWidget {
                     children: [
                       Text(
                         vaccine.name,
-                        style: GoogleFonts.quicksand(fontSize: 19, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+                        style: GoogleFonts.quicksand(
+                          fontSize: 19,
+                          fontWeight: FontWeight.w700,
+                          color: AuthPalette.textDark,
+                        ),
                       ),
                       const SizedBox(height: 2),
                       Text(
                         '${vaccine.recommendedAge} · ${vaccine.dateLabel}',
-                        style: GoogleFonts.nunito(fontSize: 12.5, color: AuthPalette.textMuted),
+                        style: GoogleFonts.nunito(
+                          fontSize: 12.5,
+                          color: AuthPalette.textMuted,
+                        ),
                       ),
                     ],
                   ),
@@ -788,7 +864,10 @@ class _VaccineDetailSheet extends StatelessWidget {
             const SizedBox(height: 14),
             _DetailBlock(label: 'Description', value: vaccine.description),
             const SizedBox(height: 14),
-            _DetailBlock(label: 'Protects Against', value: vaccine.protectsAgainst),
+            _DetailBlock(
+              label: 'Protects Against',
+              value: vaccine.protectsAgainst,
+            ),
             const SizedBox(height: 14),
             _DetailBlock(label: 'Side Effects', value: vaccine.sideEffects),
             const SizedBox(height: 14),
@@ -819,12 +898,21 @@ class _DetailBlock extends StatelessWidget {
       children: [
         Text(
           label,
-          style: GoogleFonts.nunito(fontSize: 11.5, fontWeight: FontWeight.w800, color: AuthPalette.textMuted, letterSpacing: 0.4),
+          style: GoogleFonts.nunito(
+            fontSize: 11.5,
+            fontWeight: FontWeight.w800,
+            color: AuthPalette.textMuted,
+            letterSpacing: 0.4,
+          ),
         ),
         const SizedBox(height: 4),
         Text(
           value,
-          style: GoogleFonts.nunito(fontSize: 14, color: AuthPalette.textDark, height: 1.4),
+          style: GoogleFonts.nunito(
+            fontSize: 14,
+            color: AuthPalette.textDark,
+            height: 1.4,
+          ),
         ),
       ],
     );

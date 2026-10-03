@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/router/route_paths.dart';
+import '../../../baby_management/application/baby_profile_store.dart';
+import '../../../baby_management/application/profile_tracker.dart';
 import '../../../authentication/presentation/widgets/auth_background.dart';
 import '../../../authentication/presentation/widgets/auth_form_controls.dart';
 import '../../../authentication/presentation/widgets/auth_palette.dart';
@@ -13,22 +15,22 @@ enum _DiaperType { wet, dirty, mixed }
 
 extension _DiaperTypeX on _DiaperType {
   String get label => switch (this) {
-        _DiaperType.wet => 'Wet',
-        _DiaperType.dirty => 'Dirty',
-        _DiaperType.mixed => 'Mixed',
-      };
+    _DiaperType.wet => 'Wet',
+    _DiaperType.dirty => 'Dirty',
+    _DiaperType.mixed => 'Mixed',
+  };
 
   IconData get icon => switch (this) {
-        _DiaperType.wet => Icons.water_drop_rounded,
-        _DiaperType.dirty => Icons.eco_rounded,
-        _DiaperType.mixed => Icons.change_circle_rounded,
-      };
+    _DiaperType.wet => Icons.water_drop_rounded,
+    _DiaperType.dirty => Icons.eco_rounded,
+    _DiaperType.mixed => Icons.change_circle_rounded,
+  };
 
   Color get color => switch (this) {
-        _DiaperType.wet => AuthPalette.powderBlue,
-        _DiaperType.dirty => AuthPalette.softCoral,
-        _DiaperType.mixed => AuthPalette.lavenderMist,
-      };
+    _DiaperType.wet => AuthPalette.powderBlue,
+    _DiaperType.dirty => AuthPalette.softCoral,
+    _DiaperType.mixed => AuthPalette.lavenderMist,
+  };
 }
 
 class _DiaperEntry {
@@ -46,7 +48,11 @@ class _DiaperEntry {
 }
 
 class _WeekDiaperPoint {
-  const _WeekDiaperPoint({required this.label, required this.wetCount, required this.dirtyCount});
+  const _WeekDiaperPoint({
+    required this.label,
+    required this.wetCount,
+    required this.dirtyCount,
+  });
 
   final String label;
   final int wetCount;
@@ -72,7 +78,8 @@ class DiaperScreen extends StatefulWidget {
   State<DiaperScreen> createState() => _DiaperScreenState();
 }
 
-class _DiaperScreenState extends State<DiaperScreen> with SingleTickerProviderStateMixin {
+class _DiaperScreenState extends State<DiaperScreen>
+    with SingleTickerProviderStateMixin, ProfileTracker<DiaperScreen> {
   late final AnimationController _entranceController;
   late final Animation<double> _contentFade;
   late final Animation<Offset> _contentSlide;
@@ -85,43 +92,57 @@ class _DiaperScreenState extends State<DiaperScreen> with SingleTickerProviderSt
   String _formColor = 'Yellow';
   TimeOfDay? _formTime;
 
-  static const _babyName = 'Lily';
+  String get _babyName => BabyProfileStore.name;
   static const _colorOptions = <String>['Yellow', 'Brown', 'Green', 'Other'];
-  static const _avgChangesPerDayLabel = '6 per day';
-  static const _longestDryIntervalLabel = '5h 30m • Overnight';
-  static const _mostCommonTypeLabel = 'Wet (60%)';
+  static const _avgChangesPerDayLabel = 'Not recorded';
+  static const _longestDryIntervalLabel = 'Not recorded';
+  static const _mostCommonTypeLabel = 'Not recorded';
 
   static const _weekPattern = <_WeekDiaperPoint>[
-    _WeekDiaperPoint(label: 'Mon', wetCount: 5, dirtyCount: 2),
-    _WeekDiaperPoint(label: 'Tue', wetCount: 6, dirtyCount: 3),
-    _WeekDiaperPoint(label: 'Wed', wetCount: 4, dirtyCount: 2),
-    _WeekDiaperPoint(label: 'Thu', wetCount: 5, dirtyCount: 3),
-    _WeekDiaperPoint(label: 'Fri', wetCount: 6, dirtyCount: 2),
-    _WeekDiaperPoint(label: 'Sat', wetCount: 5, dirtyCount: 4),
-    _WeekDiaperPoint(label: 'Sun', wetCount: 4, dirtyCount: 2),
+    _WeekDiaperPoint(label: 'Mon', wetCount: 0, dirtyCount: 0),
+    _WeekDiaperPoint(label: 'Tue', wetCount: 0, dirtyCount: 0),
+    _WeekDiaperPoint(label: 'Wed', wetCount: 0, dirtyCount: 0),
+    _WeekDiaperPoint(label: 'Thu', wetCount: 0, dirtyCount: 0),
+    _WeekDiaperPoint(label: 'Fri', wetCount: 0, dirtyCount: 0),
+    _WeekDiaperPoint(label: 'Sat', wetCount: 0, dirtyCount: 0),
+    _WeekDiaperPoint(label: 'Sun', wetCount: 0, dirtyCount: 0),
   ];
 
-  late final List<_DiaperEntry> _history = [
-    _DiaperEntry(type: _DiaperType.wet, color: 'Yellow', timestamp: DateTime.now().subtract(const Duration(minutes: 45))),
-    _DiaperEntry(
-      type: _DiaperType.dirty,
-      color: 'Brown',
-      timestamp: DateTime.now().subtract(const Duration(hours: 3, minutes: 20)),
-      notes: 'Slightly loose',
-    ),
-    _DiaperEntry(type: _DiaperType.wet, color: 'Yellow', timestamp: DateTime.now().subtract(const Duration(hours: 5, minutes: 55))),
-    _DiaperEntry(
-      type: _DiaperType.mixed,
-      color: 'Brown',
-      timestamp: DateTime.now().subtract(const Duration(hours: 8, minutes: 30)),
-      notes: 'After feeding',
-    ),
-    _DiaperEntry(type: _DiaperType.wet, color: 'Yellow', timestamp: DateTime.now().subtract(const Duration(hours: 11, minutes: 10))),
-  ];
+  final List<_DiaperEntry> _history = [];
+
+  @override
+  String get trackerKind => 'diaper';
+  @override
+  List<Map<String, dynamic>> encodeEntries() => _history
+      .map(
+        (e) => {
+          'type': e.type.name,
+          'color': e.color,
+          'time': e.timestamp.toIso8601String(),
+          'notes': e.notes,
+        },
+      )
+      .toList();
+  @override
+  void decodeEntries(List<Map<String, dynamic>> entries) {
+    _history
+      ..clear()
+      ..addAll(
+        entries.map(
+          (e) => _DiaperEntry(
+            type: _DiaperType.values.byName(e['type'] as String),
+            color: e['color'] as String,
+            timestamp: DateTime.parse(e['time'] as String),
+            notes: e['notes'] as String? ?? '',
+          ),
+        ),
+      );
+  }
 
   @override
   void initState() {
     super.initState();
+    startTracker();
     _entranceController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 900),
@@ -130,20 +151,28 @@ class _DiaperScreenState extends State<DiaperScreen> with SingleTickerProviderSt
       parent: _entranceController,
       curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
     );
-    _contentSlide = Tween<Offset>(begin: const Offset(0, 0.04), end: Offset.zero).animate(
-      CurvedAnimation(parent: _entranceController, curve: const Interval(0.0, 0.6, curve: Curves.easeOutCubic)),
-    );
+    _contentSlide =
+        Tween<Offset>(begin: const Offset(0, 0.04), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _entranceController,
+            curve: const Interval(0.0, 0.6, curve: Curves.easeOutCubic),
+          ),
+        );
     _headerFade = CurvedAnimation(
       parent: _entranceController,
       curve: const Interval(0.1, 0.6, curve: Curves.easeOut),
     );
     _headerScale = Tween<double>(begin: 0.9, end: 1.0).animate(
-      CurvedAnimation(parent: _entranceController, curve: const Interval(0.1, 0.8, curve: Curves.easeOutBack)),
+      CurvedAnimation(
+        parent: _entranceController,
+        curve: const Interval(0.1, 0.8, curve: Curves.easeOutBack),
+      ),
     );
   }
 
   @override
   void dispose() {
+    stopTracker();
     _entranceController.dispose();
     _notesController.dispose();
     super.dispose();
@@ -156,10 +185,15 @@ class _DiaperScreenState extends State<DiaperScreen> with SingleTickerProviderSt
         SnackBar(
           behavior: SnackBarBehavior.floating,
           backgroundColor: AuthPalette.textDark,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
           content: Text(
             message,
-            style: GoogleFonts.nunito(color: Colors.white, fontWeight: FontWeight.w600),
+            style: GoogleFonts.nunito(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       );
@@ -173,17 +207,20 @@ class _DiaperScreenState extends State<DiaperScreen> with SingleTickerProviderSt
   }
 
   void _quickAdd(_DiaperType type) {
+    if (!trackerReady) return;
     setState(() {
       _history.insert(
         0,
         _DiaperEntry(
           type: type,
-          color: type == _DiaperType.dirty || type == _DiaperType.mixed ? 'Brown' : 'Yellow',
+          color: type == _DiaperType.dirty || type == _DiaperType.mixed
+              ? 'Brown'
+              : 'Yellow',
           timestamp: DateTime.now(),
         ),
       );
     });
-    _showToast('${type.label} diaper logged 🌙');
+    saveTracker();
   }
 
   Future<void> _pickTime() async {
@@ -200,7 +237,9 @@ class _DiaperScreenState extends State<DiaperScreen> with SingleTickerProviderSt
               onSurface: AuthPalette.textDark,
             ),
             textButtonTheme: TextButtonThemeData(
-              style: TextButton.styleFrom(foregroundColor: AuthPalette.softCoral),
+              style: TextButton.styleFrom(
+                foregroundColor: AuthPalette.softCoral,
+              ),
             ),
           ),
           child: child!,
@@ -212,10 +251,17 @@ class _DiaperScreenState extends State<DiaperScreen> with SingleTickerProviderSt
   }
 
   void _handleSaveChange() {
+    if (!trackerReady) return;
     final now = DateTime.now();
     final timestamp = _formTime == null
         ? now
-        : DateTime(now.year, now.month, now.day, _formTime!.hour, _formTime!.minute);
+        : DateTime(
+            now.year,
+            now.month,
+            now.day,
+            _formTime!.hour,
+            _formTime!.minute,
+          );
     setState(() {
       _history.insert(
         0,
@@ -229,13 +275,13 @@ class _DiaperScreenState extends State<DiaperScreen> with SingleTickerProviderSt
       _notesController.clear();
       _formTime = null;
     });
-    _showToast('Diaper change saved 🌙');
+    saveTracker();
   }
 
   @override
   Widget build(BuildContext context) {
     final lastChange = _history.isEmpty ? null : _history.first;
-    final suggestedNext = lastChange?.timestamp.add(const Duration(hours: 2));
+    final suggestedNext = lastChange?.timestamp.add(const Duration(hours: 0));
 
     return Scaffold(
       backgroundColor: AuthPalette.warmCream,
@@ -258,7 +304,10 @@ class _DiaperScreenState extends State<DiaperScreen> with SingleTickerProviderSt
                         children: [
                           Row(
                             children: [
-                              AuthBackButton(onPressed: () => context.go(RoutePaths.dashboard)),
+                              AuthBackButton(
+                                onPressed: () =>
+                                    context.go(RoutePaths.dashboard),
+                              ),
                               const Spacer(),
                             ],
                           ),
@@ -279,10 +328,12 @@ class _DiaperScreenState extends State<DiaperScreen> with SingleTickerProviderSt
                           const SizedBox(height: 10),
                           _AddDiaperCard(
                             selectedType: _formType,
-                            onTypeChanged: (type) => setState(() => _formType = type),
+                            onTypeChanged: (type) =>
+                                setState(() => _formType = type),
                             selectedColor: _formColor,
                             colorOptions: _colorOptions,
-                            onColorChanged: (color) => setState(() => _formColor = color),
+                            onColorChanged: (color) =>
+                                setState(() => _formColor = color),
                             selectedTime: _formTime,
                             onPickTime: _pickTime,
                             notesController: _notesController,
@@ -292,15 +343,32 @@ class _DiaperScreenState extends State<DiaperScreen> with SingleTickerProviderSt
                           const _SectionHeading(title: 'Current Status'),
                           const SizedBox(height: 10),
                           _CurrentStatusCard(
-                            lastChangeLabel: lastChange == null ? '—' : TimeOfDay.fromDateTime(lastChange.timestamp).format(context),
-                            timeSinceLabel: lastChange == null ? '—' : _formatElapsed(DateTime.now().difference(lastChange.timestamp)),
-                            suggestedNextLabel: suggestedNext == null ? '—' : TimeOfDay.fromDateTime(suggestedNext).format(context),
+                            lastChangeLabel: lastChange == null
+                                ? '—'
+                                : TimeOfDay.fromDateTime(
+                                    lastChange.timestamp,
+                                  ).format(context),
+                            timeSinceLabel: lastChange == null
+                                ? '—'
+                                : _formatElapsed(
+                                    DateTime.now().difference(
+                                      lastChange.timestamp,
+                                    ),
+                                  ),
+                            suggestedNextLabel: suggestedNext == null
+                                ? '—'
+                                : TimeOfDay.fromDateTime(
+                                    suggestedNext,
+                                  ).format(context),
                           ),
                           const SizedBox(height: 22),
                           const _SectionHeading(title: "Today's Timeline"),
                           const SizedBox(height: 10),
                           if (_history.isEmpty)
-                            _EmptyDiaperState(onLogFirstChange: () => _quickAdd(_DiaperType.wet))
+                            _EmptyDiaperState(
+                              onLogFirstChange: () =>
+                                  _quickAdd(_DiaperType.wet),
+                            )
                           else
                             AuthCard(
                               child: Column(
@@ -322,7 +390,11 @@ class _DiaperScreenState extends State<DiaperScreen> with SingleTickerProviderSt
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
-                                  for (var i = 0; i < math.min(5, _history.length); i++) ...[
+                                  for (
+                                    var i = 0;
+                                    i < math.min(5, _history.length);
+                                    i++
+                                  ) ...[
                                     if (i > 0) const _InfoDivider(),
                                     _DiaperHistoryRow(entry: _history[i]),
                                   ],
@@ -388,23 +460,68 @@ class _DiaperFloatingDecor extends StatefulWidget {
   State<_DiaperFloatingDecor> createState() => _DiaperFloatingDecorState();
 }
 
-class _DiaperFloatingDecorState extends State<_DiaperFloatingDecor> with SingleTickerProviderStateMixin {
+class _DiaperFloatingDecorState extends State<_DiaperFloatingDecor>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
 
   static const _specs = <_DecorSpec>[
-    _DecorSpec(icon: Icons.star_rounded, top: 0.03, left: 0.09, size: 12, color: AuthPalette.softCoral, phase: 0.0),
-    _DecorSpec(icon: Icons.cloud_rounded, top: 0.05, left: 0.85, size: 20, color: AuthPalette.powderBlue, phase: 0.4),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.19, left: 0.91, size: 10, color: AuthPalette.mint, phase: 0.25),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.28, left: 0.05, size: 11, color: AuthPalette.lavenderMist, phase: 0.6),
-    _DecorSpec(icon: Icons.cloud_rounded, top: 0.53, left: 0.07, size: 16, color: AuthPalette.blushPink, phase: 0.15),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.70, left: 0.91, size: 12, color: AuthPalette.softCoral, phase: 0.5),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.03,
+      left: 0.09,
+      size: 12,
+      color: AuthPalette.softCoral,
+      phase: 0.0,
+    ),
+    _DecorSpec(
+      icon: Icons.cloud_rounded,
+      top: 0.05,
+      left: 0.85,
+      size: 20,
+      color: AuthPalette.powderBlue,
+      phase: 0.4,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.19,
+      left: 0.91,
+      size: 10,
+      color: AuthPalette.mint,
+      phase: 0.25,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.28,
+      left: 0.05,
+      size: 11,
+      color: AuthPalette.lavenderMist,
+      phase: 0.6,
+    ),
+    _DecorSpec(
+      icon: Icons.cloud_rounded,
+      top: 0.53,
+      left: 0.07,
+      size: 16,
+      color: AuthPalette.blushPink,
+      phase: 0.15,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.70,
+      left: 0.91,
+      size: 12,
+      color: AuthPalette.softCoral,
+      phase: 0.5,
+    ),
   ];
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(seconds: 4))
-      ..repeat(reverse: true);
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 4),
+    )..repeat(reverse: true);
   }
 
   @override
@@ -427,7 +544,12 @@ class _DiaperFloatingDecorState extends State<_DiaperFloatingDecor> with SingleT
                   child: AnimatedBuilder(
                     animation: _controller,
                     builder: (context, child) {
-                      final t = (math.sin((_controller.value + spec.phase) * math.pi * 2) + 1) / 2;
+                      final t =
+                          (math.sin(
+                                (_controller.value + spec.phase) * math.pi * 2,
+                              ) +
+                              1) /
+                          2;
                       return Opacity(opacity: 0.07 + (t * 0.09), child: child);
                     },
                     child: Icon(spec.icon, size: spec.size, color: spec.color),
@@ -470,7 +592,11 @@ class _SectionHeading extends StatelessWidget {
       padding: const EdgeInsets.only(left: 4),
       child: Text(
         title,
-        style: GoogleFonts.quicksand(fontSize: 17, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+        style: GoogleFonts.quicksand(
+          fontSize: 17,
+          fontWeight: FontWeight.w700,
+          color: AuthPalette.textDark,
+        ),
       ),
     );
   }
@@ -481,7 +607,10 @@ class _InfoDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Divider(color: AuthPalette.lavenderMist.withValues(alpha: 0.4), height: 1);
+    return Divider(
+      color: AuthPalette.lavenderMist.withValues(alpha: 0.4),
+      height: 1,
+    );
   }
 }
 
@@ -505,7 +634,9 @@ class _DiaperHeaderCard extends StatelessWidget {
           ],
         ),
         borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: AuthPalette.lavenderMist.withValues(alpha: 0.5)),
+        border: Border.all(
+          color: AuthPalette.lavenderMist.withValues(alpha: 0.5),
+        ),
         boxShadow: [
           BoxShadow(
             color: AuthPalette.softCoral.withValues(alpha: 0.14),
@@ -540,7 +671,11 @@ class _DiaperHeaderCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                child: const Icon(Icons.child_care_rounded, color: AuthPalette.softCoral, size: 30),
+                child: const Icon(
+                  Icons.child_care_rounded,
+                  color: AuthPalette.softCoral,
+                  size: 30,
+                ),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -558,7 +693,10 @@ class _DiaperHeaderCard extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       "$babyName's diaper routine",
-                      style: GoogleFonts.nunito(fontSize: 13.5, color: AuthPalette.textMuted),
+                      style: GoogleFonts.nunito(
+                        fontSize: 13.5,
+                        color: AuthPalette.textMuted,
+                      ),
                     ),
                   ],
                 ),
@@ -574,16 +712,28 @@ class _DiaperHeaderCard extends StatelessWidget {
             ),
             child: Row(
               children: [
-                const Icon(Icons.check_circle_rounded, size: 18, color: AuthPalette.softCoral),
+                const Icon(
+                  Icons.check_circle_rounded,
+                  size: 18,
+                  color: AuthPalette.softCoral,
+                ),
                 const SizedBox(width: 10),
                 Text(
                   "Today's total changes",
-                  style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+                  style: GoogleFonts.nunito(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: AuthPalette.textDark,
+                  ),
                 ),
                 const Spacer(),
                 Text(
                   '$totalChanges changes',
-                  style: GoogleFonts.quicksand(fontSize: 17, fontWeight: FontWeight.w800, color: AuthPalette.textDark),
+                  style: GoogleFonts.quicksand(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    color: AuthPalette.textDark,
+                  ),
                 ),
               ],
             ),
@@ -605,7 +755,9 @@ class _QuickAddRow extends StatelessWidget {
       children: [
         for (final type in _DiaperType.values) ...[
           if (type != _DiaperType.values.first) const SizedBox(width: 10),
-          Expanded(child: _QuickAddButton(type: type, onTap: () => onQuickAdd(type))),
+          Expanded(
+            child: _QuickAddButton(type: type, onTap: () => onQuickAdd(type)),
+          ),
         ],
       ],
     );
@@ -643,7 +795,9 @@ class _QuickAddButtonState extends State<_QuickAddButton> {
             decoration: BoxDecoration(
               color: widget.type.color.withValues(alpha: 0.3),
               borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: widget.type.color.withValues(alpha: 0.6)),
+              border: Border.all(
+                color: widget.type.color.withValues(alpha: 0.6),
+              ),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -652,7 +806,11 @@ class _QuickAddButtonState extends State<_QuickAddButton> {
                 const SizedBox(height: 4),
                 Text(
                   widget.type.label,
-                  style: GoogleFonts.nunito(fontSize: 12, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+                  style: GoogleFonts.nunito(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: AuthPalette.textDark,
+                  ),
                 ),
               ],
             ),
@@ -694,29 +852,50 @@ class _AddDiaperCard extends StatelessWidget {
         children: [
           Text(
             'Type',
-            style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.w700, color: AuthPalette.textMuted),
+            style: GoogleFonts.nunito(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: AuthPalette.textMuted,
+            ),
           ),
           const SizedBox(height: 8),
-          _TypeSegmentedControl(selected: selectedType, onChanged: onTypeChanged),
+          _TypeSegmentedControl(
+            selected: selectedType,
+            onChanged: onTypeChanged,
+          ),
           const SizedBox(height: 16),
-          _TimePickerField(value: selectedTime?.format(context), onTap: onPickTime),
+          _TimePickerField(
+            value: selectedTime?.format(context),
+            onTap: onPickTime,
+          ),
           const SizedBox(height: 16),
           Text(
             'Color',
-            style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.w700, color: AuthPalette.textMuted),
+            style: GoogleFonts.nunito(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: AuthPalette.textMuted,
+            ),
           ),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
             initialValue: selectedColor,
-            icon: const Icon(Icons.expand_more_rounded, color: AuthPalette.textMuted),
-            style: GoogleFonts.nunito(fontSize: 15, color: AuthPalette.textDark),
+            icon: const Icon(
+              Icons.expand_more_rounded,
+              color: AuthPalette.textMuted,
+            ),
+            style: GoogleFonts.nunito(
+              fontSize: 15,
+              color: AuthPalette.textDark,
+            ),
             decoration: authPastelDecoration(
               label: '',
               hint: 'Select a color',
               prefixIcon: Icons.palette_outlined,
             ),
             items: [
-              for (final color in colorOptions) DropdownMenuItem(value: color, child: Text(color)),
+              for (final color in colorOptions)
+                DropdownMenuItem(value: color, child: Text(color)),
             ],
             onChanged: (value) {
               if (value != null) onColorChanged(value);
@@ -726,7 +905,10 @@ class _AddDiaperCard extends StatelessWidget {
           TextFormField(
             controller: notesController,
             maxLines: 3,
-            style: GoogleFonts.nunito(fontSize: 15, color: AuthPalette.textDark),
+            style: GoogleFonts.nunito(
+              fontSize: 15,
+              color: AuthPalette.textDark,
+            ),
             cursorColor: AuthPalette.softCoral,
             decoration: authPastelDecoration(
               label: 'Notes',
@@ -747,7 +929,10 @@ class _AddDiaperCard extends StatelessWidget {
 }
 
 class _TypeSegmentedControl extends StatelessWidget {
-  const _TypeSegmentedControl({required this.selected, required this.onChanged});
+  const _TypeSegmentedControl({
+    required this.selected,
+    required this.onChanged,
+  });
 
   final _DiaperType selected;
   final ValueChanged<_DiaperType> onChanged;
@@ -759,7 +944,9 @@ class _TypeSegmentedControl extends StatelessWidget {
       decoration: BoxDecoration(
         color: AuthPalette.blushPink.withValues(alpha: 0.28),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AuthPalette.lavenderMist.withValues(alpha: 0.5)),
+        border: Border.all(
+          color: AuthPalette.lavenderMist.withValues(alpha: 0.5),
+        ),
       ),
       child: Row(
         children: [
@@ -778,7 +965,11 @@ class _TypeSegmentedControl extends StatelessWidget {
 }
 
 class _SegmentButton extends StatelessWidget {
-  const _SegmentButton({required this.type, required this.selected, required this.onTap});
+  const _SegmentButton({
+    required this.type,
+    required this.selected,
+    required this.onTap,
+  });
 
   final _DiaperType type;
   final bool selected;
@@ -806,7 +997,11 @@ class _SegmentButton extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(type.icon, size: 18, color: selected ? Colors.white : AuthPalette.textMuted),
+                  Icon(
+                    type.icon,
+                    size: 18,
+                    color: selected ? Colors.white : AuthPalette.textMuted,
+                  ),
                   const SizedBox(height: 3),
                   Text(
                     type.label,
@@ -842,24 +1037,44 @@ class _TimePickerField extends StatelessWidget {
         decoration: InputDecoration(
           labelText: 'Time',
           hintText: 'Select a time (defaults to now)',
-          labelStyle: GoogleFonts.nunito(color: AuthPalette.textMuted, fontSize: 14),
-          hintStyle: GoogleFonts.nunito(color: AuthPalette.textMuted.withValues(alpha: 0.6), fontSize: 13),
-          prefixIcon: const Icon(Icons.access_time_rounded, color: AuthPalette.textMuted),
-          suffixIcon: const Icon(Icons.expand_more_rounded, color: AuthPalette.textMuted),
+          labelStyle: GoogleFonts.nunito(
+            color: AuthPalette.textMuted,
+            fontSize: 14,
+          ),
+          hintStyle: GoogleFonts.nunito(
+            color: AuthPalette.textMuted.withValues(alpha: 0.6),
+            fontSize: 13,
+          ),
+          prefixIcon: const Icon(
+            Icons.access_time_rounded,
+            color: AuthPalette.textMuted,
+          ),
+          suffixIcon: const Icon(
+            Icons.expand_more_rounded,
+            color: AuthPalette.textMuted,
+          ),
           filled: true,
           fillColor: AuthPalette.blushPink.withValues(alpha: 0.28),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 16,
+          ),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(18),
             borderSide: BorderSide.none,
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(18),
-            borderSide: BorderSide(color: AuthPalette.lavenderMist.withValues(alpha: 0.7)),
+            borderSide: BorderSide(
+              color: AuthPalette.lavenderMist.withValues(alpha: 0.7),
+            ),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(18),
-            borderSide: const BorderSide(color: AuthPalette.softCoral, width: 2),
+            borderSide: const BorderSide(
+              color: AuthPalette.softCoral,
+              width: 2,
+            ),
           ),
         ),
         child: Text(
@@ -888,15 +1103,27 @@ class _CurrentStatusCard extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: _StatusStat(icon: Icons.history_rounded, label: 'Last Change', value: lastChangeLabel),
+            child: _StatusStat(
+              icon: Icons.history_rounded,
+              label: 'Last Change',
+              value: lastChangeLabel,
+            ),
           ),
           _statDivider(),
           Expanded(
-            child: _StatusStat(icon: Icons.timelapse_rounded, label: 'Time Since', value: timeSinceLabel),
+            child: _StatusStat(
+              icon: Icons.timelapse_rounded,
+              label: 'Time Since',
+              value: timeSinceLabel,
+            ),
           ),
           _statDivider(),
           Expanded(
-            child: _StatusStat(icon: Icons.event_available_rounded, label: 'Next Check', value: suggestedNextLabel),
+            child: _StatusStat(
+              icon: Icons.event_available_rounded,
+              label: 'Next Check',
+              value: suggestedNextLabel,
+            ),
           ),
         ],
       ),
@@ -914,7 +1141,11 @@ class _CurrentStatusCard extends StatelessWidget {
 }
 
 class _StatusStat extends StatelessWidget {
-  const _StatusStat({required this.icon, required this.label, required this.value});
+  const _StatusStat({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
 
   final IconData icon;
   final String label;
@@ -929,13 +1160,20 @@ class _StatusStat extends StatelessWidget {
         Text(
           value,
           textAlign: TextAlign.center,
-          style: GoogleFonts.quicksand(fontSize: 13.5, fontWeight: FontWeight.w800, color: AuthPalette.textDark),
+          style: GoogleFonts.quicksand(
+            fontSize: 13.5,
+            fontWeight: FontWeight.w800,
+            color: AuthPalette.textDark,
+          ),
         ),
         const SizedBox(height: 2),
         Text(
           label,
           textAlign: TextAlign.center,
-          style: GoogleFonts.nunito(fontSize: 10.5, color: AuthPalette.textMuted),
+          style: GoogleFonts.nunito(
+            fontSize: 10.5,
+            color: AuthPalette.textMuted,
+          ),
         ),
       ],
     );
@@ -959,8 +1197,15 @@ class _DiaperTimelineTile extends StatelessWidget {
               Container(
                 width: 34,
                 height: 34,
-                decoration: BoxDecoration(color: entry.type.color.withValues(alpha: 0.32), shape: BoxShape.circle),
-                child: Icon(entry.type.icon, size: 16, color: AuthPalette.textDark),
+                decoration: BoxDecoration(
+                  color: entry.type.color.withValues(alpha: 0.32),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  entry.type.icon,
+                  size: 16,
+                  color: AuthPalette.textDark,
+                ),
               ),
               if (!isLast)
                 Expanded(
@@ -982,12 +1227,19 @@ class _DiaperTimelineTile extends StatelessWidget {
                   Expanded(
                     child: Text(
                       entry.type.label,
-                      style: GoogleFonts.nunito(fontSize: 13.5, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+                      style: GoogleFonts.nunito(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                        color: AuthPalette.textDark,
+                      ),
                     ),
                   ),
                   Text(
                     TimeOfDay.fromDateTime(entry.timestamp).format(context),
-                    style: GoogleFonts.nunito(fontSize: 11, color: AuthPalette.textMuted),
+                    style: GoogleFonts.nunito(
+                      fontSize: 11,
+                      color: AuthPalette.textMuted,
+                    ),
                   ),
                 ],
               ),
@@ -1014,7 +1266,10 @@ class _DiaperHistoryRow extends StatelessWidget {
           Container(
             width: 40,
             height: 40,
-            decoration: BoxDecoration(color: entry.type.color.withValues(alpha: 0.3), shape: BoxShape.circle),
+            decoration: BoxDecoration(
+              color: entry.type.color.withValues(alpha: 0.3),
+              shape: BoxShape.circle,
+            ),
             child: Icon(entry.type.icon, size: 18, color: AuthPalette.textDark),
           ),
           const SizedBox(width: 12),
@@ -1026,18 +1281,29 @@ class _DiaperHistoryRow extends StatelessWidget {
                   children: [
                     Text(
                       entry.type.label,
-                      style: GoogleFonts.nunito(fontSize: 14, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+                      style: GoogleFonts.nunito(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: AuthPalette.textDark,
+                      ),
                     ),
                     const SizedBox(width: 8),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: AuthPalette.lavenderMist.withValues(alpha: 0.3),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Text(
                         entry.color,
-                        style: GoogleFonts.nunito(fontSize: 10.5, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+                        style: GoogleFonts.nunito(
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w700,
+                          color: AuthPalette.textDark,
+                        ),
                       ),
                     ),
                   ],
@@ -1048,7 +1314,10 @@ class _DiaperHistoryRow extends StatelessWidget {
                     entry.notes,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.nunito(fontSize: 12, color: AuthPalette.textMuted),
+                    style: GoogleFonts.nunito(
+                      fontSize: 12,
+                      color: AuthPalette.textMuted,
+                    ),
                   ),
                 ],
               ],
@@ -1057,7 +1326,11 @@ class _DiaperHistoryRow extends StatelessWidget {
           const SizedBox(width: 8),
           Text(
             TimeOfDay.fromDateTime(entry.timestamp).format(context),
-            style: GoogleFonts.nunito(fontSize: 12, fontWeight: FontWeight.w700, color: AuthPalette.textMuted),
+            style: GoogleFonts.nunito(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: AuthPalette.textMuted,
+            ),
           ),
         ],
       ),
@@ -1072,7 +1345,9 @@ class _WeeklyPatternCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final maxTotal = points.map((p) => p.wetCount + p.dirtyCount).reduce(math.max);
+    final maxTotal = points
+        .map((p) => p.wetCount + p.dirtyCount)
+        .fold(1, (a, b) => math.max(a, b));
 
     return AuthCard(
       child: Column(
@@ -1087,12 +1362,19 @@ class _WeeklyPatternCard extends StatelessWidget {
                   if (i > 0) const SizedBox(width: 8),
                   Expanded(
                     child: TweenAnimationBuilder<double>(
-                      tween: Tween(begin: 0, end: (points[i].wetCount + points[i].dirtyCount) / maxTotal),
+                      tween: Tween(
+                        begin: 0,
+                        end:
+                            (points[i].wetCount + points[i].dirtyCount) /
+                            maxTotal,
+                      ),
                       duration: Duration(milliseconds: 500 + (i * 100)),
                       curve: Curves.easeOutCubic,
                       builder: (context, t, child) {
                         final total = points[i].wetCount + points[i].dirtyCount;
-                        final dirtyFraction = total == 0 ? 0.0 : points[i].dirtyCount / total;
+                        final dirtyFraction = total == 0
+                            ? 0.0
+                            : points[i].dirtyCount / total;
                         return FractionallySizedBox(
                           heightFactor: 0.1 + (t * 0.9),
                           alignment: Alignment.bottomCenter,
@@ -1101,12 +1383,21 @@ class _WeeklyPatternCard extends StatelessWidget {
                             child: Column(
                               children: [
                                 Expanded(
-                                  flex: ((1 - dirtyFraction) * 100).round().clamp(1, 100),
-                                  child: Container(color: AuthPalette.powderBlue),
+                                  flex: ((1 - dirtyFraction) * 100)
+                                      .round()
+                                      .clamp(1, 100),
+                                  child: Container(
+                                    color: AuthPalette.powderBlue,
+                                  ),
                                 ),
                                 Expanded(
-                                  flex: (dirtyFraction * 100).round().clamp(1, 100),
-                                  child: Container(color: AuthPalette.softCoral),
+                                  flex: (dirtyFraction * 100).round().clamp(
+                                    1,
+                                    100,
+                                  ),
+                                  child: Container(
+                                    color: AuthPalette.softCoral,
+                                  ),
                                 ),
                               ],
                             ),
@@ -1128,7 +1419,10 @@ class _WeeklyPatternCard extends StatelessWidget {
                   child: Text(
                     points[i].label,
                     textAlign: TextAlign.center,
-                    style: GoogleFonts.nunito(fontSize: 10.5, color: AuthPalette.textMuted),
+                    style: GoogleFonts.nunito(
+                      fontSize: 10.5,
+                      color: AuthPalette.textMuted,
+                    ),
                   ),
                 ),
               ],
@@ -1159,9 +1453,16 @@ class _LegendDot extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
         const SizedBox(width: 6),
-        Text(label, style: GoogleFonts.nunito(fontSize: 12, color: AuthPalette.textMuted)),
+        Text(
+          label,
+          style: GoogleFonts.nunito(fontSize: 12, color: AuthPalette.textMuted),
+        ),
       ],
     );
   }
@@ -1191,19 +1492,30 @@ class _InsightRow extends StatelessWidget {
           Container(
             width: 38,
             height: 38,
-            decoration: BoxDecoration(color: color.withValues(alpha: 0.3), shape: BoxShape.circle),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.3),
+              shape: BoxShape.circle,
+            ),
             child: Icon(icon, size: 18, color: AuthPalette.textDark),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
               title,
-              style: GoogleFonts.nunito(fontSize: 13.5, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+              style: GoogleFonts.nunito(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w700,
+                color: AuthPalette.textDark,
+              ),
             ),
           ),
           Text(
             detail,
-            style: GoogleFonts.nunito(fontSize: 12.5, fontWeight: FontWeight.w700, color: AuthPalette.textMuted),
+            style: GoogleFonts.nunito(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+              color: AuthPalette.textMuted,
+            ),
           ),
         ],
       ),
@@ -1234,20 +1546,32 @@ class _EmptyDiaperState extends StatelessWidget {
                     color: AuthPalette.mint.withValues(alpha: 0.35),
                   ),
                 ),
-                const Icon(Icons.child_care_rounded, color: AuthPalette.softCoral, size: 38),
+                const Icon(
+                  Icons.child_care_rounded,
+                  color: AuthPalette.softCoral,
+                  size: 38,
+                ),
               ],
             ),
           ),
           const SizedBox(height: 16),
           Text(
             'No diaper changes logged yet',
-            style: GoogleFonts.quicksand(fontSize: 16.5, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+            style: GoogleFonts.quicksand(
+              fontSize: 16.5,
+              fontWeight: FontWeight.w700,
+              color: AuthPalette.textDark,
+            ),
           ),
           const SizedBox(height: 6),
           Text(
-            "Log Lily's first diaper change to start tracking her routine.",
+            "Log ${BabyProfileStore.name}'s first diaper change to start tracking her routine.",
             textAlign: TextAlign.center,
-            style: GoogleFonts.nunito(fontSize: 12.5, color: AuthPalette.textMuted, height: 1.4),
+            style: GoogleFonts.nunito(
+              fontSize: 12.5,
+              color: AuthPalette.textMuted,
+              height: 1.4,
+            ),
           ),
           const SizedBox(height: 16),
           AuthPrimaryButton(

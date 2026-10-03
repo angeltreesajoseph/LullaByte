@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class BabyCreate(BaseModel):
+    photo_data: str | None = Field(default=None, max_length=500000)
     name: str = Field(min_length=1, max_length=120)
     birth_date: date | None = None
     gender: str | None = Field(default=None, max_length=32)
@@ -21,6 +22,7 @@ class BabyCreate(BaseModel):
 
 
 class BabyUpdate(BaseModel):
+    photo_data: str | None = Field(default=None, max_length=500000)
     name: str | None = Field(default=None, min_length=1, max_length=120)
     birth_date: date | None = None
     gender: str | None = Field(default=None, max_length=32)
@@ -34,6 +36,8 @@ class BabyUpdate(BaseModel):
 
 
 class BabyResponse(BaseModel):
+    tracker_data: dict | None
+    photo_data: str | None
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID

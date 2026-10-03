@@ -1,4 +1,6 @@
 import 'dart:math' as math;
+import 'dart:convert';
+import 'package:image_picker/image_picker.dart';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -14,6 +16,7 @@ import '../../../authentication/presentation/widgets/auth_background.dart';
 import '../../../authentication/presentation/widgets/auth_form_controls.dart';
 import '../../../authentication/presentation/widgets/auth_palette.dart';
 import '../../application/baby_profile_store.dart';
+import '../widgets/baby_avatar.dart';
 
 /// Baby Profile screen (SRS Section 10.13).
 ///
@@ -145,7 +148,7 @@ class _BabyProfileScreenState extends State<BabyProfileScreen>
     'November',
     'December',
   ][month - 1];
-  static const _healthStatus = 'Healthy';
+  static const _healthStatus = 'Profile';
   String get _parentName =>
       FirebaseAuth.instance.currentUser?.displayName ?? 'Parent';
   String get _weight => _valueWithUnit('birth_weight_kg', 'kg');
@@ -175,9 +178,9 @@ class _BabyProfileScreenState extends State<BabyProfileScreen>
   static const _feedingsToday = '7';
   static const _diapersToday = '5';
   static const _criesAnalyzed = '3';
-  static const _upcomingVaccine = 'DTaP • in 12 days';
-  static const _lastCheckup = '2 weeks ago • Dr. Meera Nair';
-  static const _medications = 'Vitamin D drops • Daily';
+  static const _upcomingVaccine = 'Not recorded';
+  static const _lastCheckup = 'Not recorded';
+  static const _medications = 'Not recorded';
 
   @override
   void initState() {
@@ -380,19 +383,18 @@ class _BabyProfileScreenState extends State<BabyProfileScreen>
                           const SizedBox(height: 22),
                           _SectionHeading(title: 'Growth Overview'),
                           const SizedBox(height: 10),
-                          const _GrowthOverviewCard(
-                            weightTrend: _weightTrend,
-                            heightTrend: _heightTrend,
-                            lastUpdatedLabel: _lastUpdatedLabel,
+                          const AuthCard(
+                            child: Text(
+                              'View saved measurements in the Growth tracker.',
+                            ),
                           ),
                           const SizedBox(height: 22),
                           _SectionHeading(title: 'Care Summary'),
                           const SizedBox(height: 10),
-                          const _CareSummaryGrid(
-                            avgSleep: _avgSleep,
-                            feedingsToday: _feedingsToday,
-                            diapersToday: _diapersToday,
-                            criesAnalyzed: _criesAnalyzed,
+                          const AuthCard(
+                            child: Text(
+                              'Open a tracker to view this baby\'s saved care records.',
+                            ),
                           ),
                           const SizedBox(height: 22),
                           _SectionHeading(title: 'Medical'),
@@ -744,11 +746,7 @@ class _ProfileHeroCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                child: const Icon(
-                  Icons.child_friendly_rounded,
-                  color: AuthPalette.softCoral,
-                  size: 42,
-                ),
+                child: const BabyAvatar(size: 84),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -1595,6 +1593,28 @@ class _EditBabyProfileScreen extends StatefulWidget {
 }
 
 class _EditBabyProfileScreenState extends State<_EditBabyProfileScreen> {
+  String? _photoData;
+  bool _saving = false;
+
+  Future<void> _pickProfilePhoto() async {
+    if (_saving) return;
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 65,
+        maxWidth: 512,
+        maxHeight: 512,
+      );
+      if (picked == null) return;
+      final data = base64Encode(await picked.readAsBytes());
+      if (data.length > 500000) throw StateError('Photo too large');
+      if (mounted) setState(() => _photoData = data);
+    } catch (_) {
+      if (mounted)
+        _showToast('Could not select this photo. Try a smaller image.');
+    }
+  }
+
   static const _genderOptions = <String>['Girl', 'Boy', 'Other'];
   static const _bloodGroupOptions = <String>[
     'O+',
@@ -1704,9 +1724,11 @@ class _EditBabyProfileScreenState extends State<_EditBabyProfileScreen> {
   }
 
   Future<void> _handleSave() async {
+    if (_saving) return;
     final id = BabyProfileStore.id;
     final user = FirebaseAuthService().currentUser;
     if (id == null || user == null) return;
+    setState(() => _saving = true);
     double? measurement(TextEditingController controller) =>
         double.tryParse(controller.text.trim().split(' ').first);
     try {
@@ -1716,6 +1738,7 @@ class _EditBabyProfileScreenState extends State<_EditBabyProfileScreen> {
       final response = await dio.patch<Map<String, dynamic>>(
         '/babies/$id',
         data: {
+          if (_photoData != null) 'photo_data': _photoData,
           'name': _nameController.text.trim(),
           'birth_date': _dateOfBirth.toIso8601String().split('T').first,
           'gender': _gender.toLowerCase() == 'other'
@@ -1739,6 +1762,8 @@ class _EditBabyProfileScreenState extends State<_EditBabyProfileScreen> {
       Navigator.of(context).pop();
     } catch (_) {
       if (mounted) _showToast('Could not save changes. Please try again.');
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
   }
 
@@ -1780,9 +1805,21 @@ class _EditBabyProfileScreenState extends State<_EditBabyProfileScreen> {
                       ),
                       const SizedBox(height: 18),
                       Center(
-                        child: _AvatarPicker(
-                          onTap: () =>
-                              _showToast('Photo picker is coming soon 🌙'),
+                        child: GestureDetector(
+                          onTap: _pickProfilePhoto,
+                          child: Column(
+                            children: [
+                              BabyAvatar(
+                                size: 84,
+                                profile: {
+                                  ...BabyProfileStore.data,
+                                  if (_photoData != null)
+                                    'photo_data': _photoData,
+                                },
+                              ),
+                              const Text('Change photo'),
+                            ],
+                          ),
                         ),
                       ),
                       const SizedBox(height: 22),
@@ -1951,7 +1988,7 @@ class _EditBabyProfileScreenState extends State<_EditBabyProfileScreen> {
                             child: AuthPrimaryButton(
                               label: 'Save Changes',
                               isLoading: false,
-                              onPressed: _handleSave,
+                              onPressed: _saving ? null : _handleSave,
                             ),
                           ),
                         ],

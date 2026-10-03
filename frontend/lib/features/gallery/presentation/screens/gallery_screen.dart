@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:convert';
+import 'dart:typed_data';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -11,6 +13,7 @@ import '../../../authentication/presentation/widgets/auth_background.dart';
 import '../../../authentication/presentation/widgets/auth_form_controls.dart';
 import '../../../authentication/presentation/widgets/auth_palette.dart';
 import '../../../baby_management/application/baby_profile_store.dart';
+import '../../../baby_management/application/profile_tracker.dart';
 
 class _MemoryPhoto {
   _MemoryPhoto({
@@ -18,6 +21,7 @@ class _MemoryPhoto {
     required this.dateLabel,
     required this.accentColor,
     this.file,
+    this.bytes,
     this.isFavorite = false,
     this.isThisMonth = false,
   });
@@ -26,6 +30,7 @@ class _MemoryPhoto {
   final String dateLabel;
   final Color accentColor;
   final File? file;
+  final Uint8List? bytes;
   bool isFavorite;
   bool isThisMonth;
 }
@@ -51,7 +56,41 @@ class GalleryScreen extends StatefulWidget {
   State<GalleryScreen> createState() => _GalleryScreenState();
 }
 
-class _GalleryScreenState extends State<GalleryScreen> with SingleTickerProviderStateMixin {
+class _GalleryScreenState extends State<GalleryScreen>
+    with SingleTickerProviderStateMixin, ProfileTracker<GalleryScreen> {
+  @override
+  String get trackerKind => 'memories';
+
+  @override
+  List<Map<String, dynamic>> encodeEntries() => _photos
+      .map(
+        (photo) => {
+          'title': photo.title,
+          'date': photo.dateLabel,
+          'photo_data': base64Encode(photo.bytes!),
+          'favorite': photo.isFavorite,
+          'this_month': photo.isThisMonth,
+        },
+      )
+      .toList();
+
+  @override
+  void decodeEntries(List<Map<String, dynamic>> entries) {
+    _photos.clear();
+    for (final entry in entries) {
+      _photos.add(
+        _MemoryPhoto(
+          title: entry['title'] as String,
+          dateLabel: entry['date'] as String,
+          accentColor: _accentCycle[_photos.length % _accentCycle.length],
+          bytes: base64Decode(entry['photo_data'] as String),
+          isFavorite: entry['favorite'] == true,
+          isThisMonth: entry['this_month'] == true,
+        ),
+      );
+    }
+  }
+
   late final AnimationController _entranceController;
   late final Animation<double> _contentFade;
   late final Animation<Offset> _contentSlide;
@@ -68,7 +107,13 @@ class _GalleryScreenState extends State<GalleryScreen> with SingleTickerProvider
     AuthPalette.softCoral,
   ];
 
-  static const _filters = <String>['All', 'Favorites', 'This Week', 'This Month', 'Videos'];
+  static const _filters = <String>[
+    'All',
+    'Favorites',
+    'This Week',
+    'This Month',
+    'Videos',
+  ];
 
   int _selectedFilter = 0;
 
@@ -113,7 +158,7 @@ class _GalleryScreenState extends State<GalleryScreen> with SingleTickerProvider
   @override
   void initState() {
     super.initState();
-    _photos.first.title = "${BabyProfileStore.name}'s first laugh";
+    startTracker();
     _entranceController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 900),
@@ -122,20 +167,28 @@ class _GalleryScreenState extends State<GalleryScreen> with SingleTickerProvider
       parent: _entranceController,
       curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
     );
-    _contentSlide = Tween<Offset>(begin: const Offset(0, 0.04), end: Offset.zero).animate(
-      CurvedAnimation(parent: _entranceController, curve: const Interval(0.0, 0.6, curve: Curves.easeOutCubic)),
-    );
+    _contentSlide =
+        Tween<Offset>(begin: const Offset(0, 0.04), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _entranceController,
+            curve: const Interval(0.0, 0.6, curve: Curves.easeOutCubic),
+          ),
+        );
     _heroFade = CurvedAnimation(
       parent: _entranceController,
       curve: const Interval(0.1, 0.6, curve: Curves.easeOut),
     );
     _heroScale = Tween<double>(begin: 0.94, end: 1.0).animate(
-      CurvedAnimation(parent: _entranceController, curve: const Interval(0.1, 0.8, curve: Curves.easeOutBack)),
+      CurvedAnimation(
+        parent: _entranceController,
+        curve: const Interval(0.1, 0.8, curve: Curves.easeOutBack),
+      ),
     );
   }
 
   @override
   void dispose() {
+    stopTracker();
     _entranceController.dispose();
     super.dispose();
   }
@@ -147,10 +200,15 @@ class _GalleryScreenState extends State<GalleryScreen> with SingleTickerProvider
         SnackBar(
           behavior: SnackBarBehavior.floating,
           backgroundColor: AuthPalette.textDark,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
           content: Text(
             message,
-            style: GoogleFonts.nunito(color: Colors.white, fontWeight: FontWeight.w600),
+            style: GoogleFonts.nunito(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       );
@@ -167,26 +225,34 @@ class _GalleryScreenState extends State<GalleryScreen> with SingleTickerProvider
   }
 
   Future<void> _pickImage(ImageSource source) async {
+    if (!trackerReady) {
+      _showToast('Wait for your memories to load before adding a photo.');
+      return;
+    }
+    final babyId = BabyProfileStore.id;
     try {
       final picked = await ImagePicker().pickImage(
         source: source,
-        imageQuality: 85,
-        maxWidth: 1600,
+        imageQuality: 65,
+        maxWidth: 768,
+        maxHeight: 768,
       );
       if (picked == null || !mounted) return;
+      final bytes = await picked.readAsBytes();
+      if (!mounted || BabyProfileStore.id != babyId) return;
       setState(() {
         _photos.insert(
           0,
           _MemoryPhoto(
             title: 'New memory',
-            dateLabel: 'Today',
+            dateLabel: DateTime.now().toIso8601String().split('T').first,
             accentColor: _accentCycle[_photos.length % _accentCycle.length],
-            file: File(picked.path),
+            bytes: bytes,
             isThisMonth: true,
           ),
         );
       });
-      _showToast('Photo added to the gallery 🌙');
+      await saveTracker();
     } catch (_) {
       if (!mounted) return;
       _showToast("Couldn't access the camera or photo library.");
@@ -194,11 +260,15 @@ class _GalleryScreenState extends State<GalleryScreen> with SingleTickerProvider
   }
 
   void _toggleFavorite(_MemoryPhoto photo) {
+    if (!trackerReady) return;
     setState(() => photo.isFavorite = !photo.isFavorite);
+    saveTracker();
   }
 
   void _deletePhoto(_MemoryPhoto photo) {
+    if (!trackerReady) return;
     setState(() => _photos.remove(photo));
+    saveTracker();
   }
 
   void _openPreview(_MemoryPhoto photo) {
@@ -218,7 +288,9 @@ class _GalleryScreenState extends State<GalleryScreen> with SingleTickerProvider
 
   @override
   Widget build(BuildContext context) {
-    final crossAxisCount = MediaQuery.sizeOf(context).width >= _tabletBreakpoint ? 3 : 2;
+    final crossAxisCount = MediaQuery.sizeOf(context).width >= _tabletBreakpoint
+        ? 3
+        : 2;
     final totalCount = _photos.length;
     final favoriteCount = _photos.where((p) => p.isFavorite).length;
     final thisMonthCount = _photos.where((p) => p.isThisMonth).length;
@@ -244,7 +316,10 @@ class _GalleryScreenState extends State<GalleryScreen> with SingleTickerProvider
                         children: [
                           Row(
                             children: [
-                              AuthBackButton(onPressed: () => context.go(RoutePaths.dashboard)),
+                              AuthBackButton(
+                                onPressed: () =>
+                                    context.go(RoutePaths.dashboard),
+                              ),
                               const Spacer(),
                             ],
                           ),
@@ -264,7 +339,10 @@ class _GalleryScreenState extends State<GalleryScreen> with SingleTickerProvider
                                 const SizedBox(height: 2),
                                 Text(
                                   "${BabyProfileStore.name}'s precious moments",
-                                  style: GoogleFonts.nunito(fontSize: 13.5, color: AuthPalette.textMuted),
+                                  style: GoogleFonts.nunito(
+                                    fontSize: 13.5,
+                                    color: AuthPalette.textMuted,
+                                  ),
                                 ),
                               ],
                             ),
@@ -277,14 +355,16 @@ class _GalleryScreenState extends State<GalleryScreen> with SingleTickerProvider
                                 scale: _heroScale,
                                 child: _MemoryHeroCard(
                                   photo: _photos.first,
-                                  onToggleFavorite: () => _toggleFavorite(_photos.first),
+                                  onToggleFavorite: () =>
+                                      _toggleFavorite(_photos.first),
                                 ),
                               ),
                             ),
                           const SizedBox(height: 20),
                           _GalleryActionsRow(
                             onAddPhoto: _handleAddPhotoTap,
-                            onAddVideo: () => _showToast('Video memories are coming soon 🌙'),
+                            onAddVideo: () =>
+                                _showToast('Video memories are coming soon 🌙'),
                             onCamera: () => _pickImage(ImageSource.camera),
                             onGallery: () => _pickImage(ImageSource.gallery),
                           ),
@@ -292,24 +372,28 @@ class _GalleryScreenState extends State<GalleryScreen> with SingleTickerProvider
                           _FilterChipsRow(
                             filters: _filters,
                             selectedIndex: _selectedFilter,
-                            onSelected: (index) => setState(() => _selectedFilter = index),
+                            onSelected: (index) =>
+                                setState(() => _selectedFilter = index),
                           ),
                           const SizedBox(height: 22),
                           const _SectionHeading(title: 'Your Memories'),
                           const SizedBox(height: 10),
                           if (_photos.isEmpty)
-                            _EmptyGalleryState(onAddFirstPhoto: _handleAddPhotoTap)
+                            _EmptyGalleryState(
+                              onAddFirstPhoto: _handleAddPhotoTap,
+                            )
                           else
                             GridView.builder(
                               shrinkWrap: true,
                               physics: const NeverScrollableScrollPhysics(),
                               itemCount: _photos.length,
-                              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: crossAxisCount,
-                                mainAxisSpacing: 14,
-                                crossAxisSpacing: 14,
-                                childAspectRatio: 1,
-                              ),
+                              gridDelegate:
+                                  SliverGridDelegateWithFixedCrossAxisCount(
+                                    crossAxisCount: crossAxisCount,
+                                    mainAxisSpacing: 14,
+                                    crossAxisSpacing: 14,
+                                    childAspectRatio: 1,
+                                  ),
                               itemBuilder: (context, index) {
                                 final photo = _photos[index];
                                 return _GalleryThumbnail(
@@ -349,23 +433,68 @@ class _GalleryFloatingDecor extends StatefulWidget {
   State<_GalleryFloatingDecor> createState() => _GalleryFloatingDecorState();
 }
 
-class _GalleryFloatingDecorState extends State<_GalleryFloatingDecor> with SingleTickerProviderStateMixin {
+class _GalleryFloatingDecorState extends State<_GalleryFloatingDecor>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
 
   static const _specs = <_DecorSpec>[
-    _DecorSpec(icon: Icons.star_rounded, top: 0.03, left: 0.09, size: 12, color: AuthPalette.softCoral, phase: 0.0),
-    _DecorSpec(icon: Icons.cloud_rounded, top: 0.05, left: 0.85, size: 20, color: AuthPalette.powderBlue, phase: 0.4),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.20, left: 0.91, size: 10, color: AuthPalette.mint, phase: 0.25),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.29, left: 0.05, size: 11, color: AuthPalette.lavenderMist, phase: 0.6),
-    _DecorSpec(icon: Icons.cloud_rounded, top: 0.54, left: 0.07, size: 16, color: AuthPalette.blushPink, phase: 0.15),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.71, left: 0.91, size: 12, color: AuthPalette.softCoral, phase: 0.5),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.03,
+      left: 0.09,
+      size: 12,
+      color: AuthPalette.softCoral,
+      phase: 0.0,
+    ),
+    _DecorSpec(
+      icon: Icons.cloud_rounded,
+      top: 0.05,
+      left: 0.85,
+      size: 20,
+      color: AuthPalette.powderBlue,
+      phase: 0.4,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.20,
+      left: 0.91,
+      size: 10,
+      color: AuthPalette.mint,
+      phase: 0.25,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.29,
+      left: 0.05,
+      size: 11,
+      color: AuthPalette.lavenderMist,
+      phase: 0.6,
+    ),
+    _DecorSpec(
+      icon: Icons.cloud_rounded,
+      top: 0.54,
+      left: 0.07,
+      size: 16,
+      color: AuthPalette.blushPink,
+      phase: 0.15,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.71,
+      left: 0.91,
+      size: 12,
+      color: AuthPalette.softCoral,
+      phase: 0.5,
+    ),
   ];
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(seconds: 4))
-      ..repeat(reverse: true);
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 4),
+    )..repeat(reverse: true);
   }
 
   @override
@@ -388,7 +517,12 @@ class _GalleryFloatingDecorState extends State<_GalleryFloatingDecor> with Singl
                   child: AnimatedBuilder(
                     animation: _controller,
                     builder: (context, child) {
-                      final t = (math.sin((_controller.value + spec.phase) * math.pi * 2) + 1) / 2;
+                      final t =
+                          (math.sin(
+                                (_controller.value + spec.phase) * math.pi * 2,
+                              ) +
+                              1) /
+                          2;
                       return Opacity(opacity: 0.07 + (t * 0.09), child: child);
                     },
                     child: Icon(spec.icon, size: spec.size, color: spec.color),
@@ -431,7 +565,11 @@ class _SectionHeading extends StatelessWidget {
       padding: const EdgeInsets.only(left: 4),
       child: Text(
         title,
-        style: GoogleFonts.quicksand(fontSize: 17, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+        style: GoogleFonts.quicksand(
+          fontSize: 17,
+          fontWeight: FontWeight.w700,
+          color: AuthPalette.textDark,
+        ),
       ),
     );
   }
@@ -450,7 +588,9 @@ class _MemoryHeroCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.92),
         borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: AuthPalette.lavenderMist.withValues(alpha: 0.5)),
+        border: Border.all(
+          color: AuthPalette.lavenderMist.withValues(alpha: 0.5),
+        ),
         boxShadow: [
           BoxShadow(
             color: AuthPalette.softCoral.withValues(alpha: 0.16),
@@ -478,7 +618,10 @@ class _MemoryHeroCard extends StatelessWidget {
                   Positioned(
                     top: 10,
                     right: 10,
-                    child: _FavoriteBadge(isFavorite: photo.isFavorite, onTap: onToggleFavorite),
+                    child: _FavoriteBadge(
+                      isFavorite: photo.isFavorite,
+                      onTap: onToggleFavorite,
+                    ),
                   ),
                 ],
               ),
@@ -495,12 +638,19 @@ class _MemoryHeroCard extends StatelessWidget {
                     children: [
                       Text(
                         photo.title,
-                        style: GoogleFonts.quicksand(fontSize: 17, fontWeight: FontWeight.w800, color: AuthPalette.textDark),
+                        style: GoogleFonts.quicksand(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          color: AuthPalette.textDark,
+                        ),
                       ),
                       const SizedBox(height: 2),
                       Text(
                         photo.dateLabel,
-                        style: GoogleFonts.nunito(fontSize: 12.5, color: AuthPalette.textMuted),
+                        style: GoogleFonts.nunito(
+                          fontSize: 12.5,
+                          color: AuthPalette.textMuted,
+                        ),
                       ),
                     ],
                   ),
@@ -524,6 +674,9 @@ class _PhotoSurface extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (photo.bytes != null) {
+      return Image.memory(photo.bytes!, fit: BoxFit.cover);
+    }
     final file = photo.file;
     if (file != null) {
       return Image.file(file, fit: BoxFit.cover);
@@ -540,7 +693,11 @@ class _PhotoSurface extends StatelessWidget {
         ),
       ),
       child: Center(
-        child: Icon(Icons.child_friendly_rounded, size: iconSize, color: Colors.white.withValues(alpha: 0.9)),
+        child: Icon(
+          Icons.child_friendly_rounded,
+          size: iconSize,
+          color: Colors.white.withValues(alpha: 0.9),
+        ),
       ),
     );
   }
@@ -566,7 +723,9 @@ class _FavoriteBadge extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.all(8),
             child: Icon(
-              isFavorite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+              isFavorite
+                  ? Icons.favorite_rounded
+                  : Icons.favorite_border_rounded,
               size: 18,
               color: AuthPalette.softCoral,
             ),
@@ -597,10 +756,30 @@ class _GalleryActionsRow extends StatelessWidget {
         spacing: 10,
         runSpacing: 10,
         children: [
-          _GalleryActionChip(icon: Icons.add_photo_alternate_rounded, label: 'Add Photo', color: AuthPalette.softCoral, onTap: onAddPhoto),
-          _GalleryActionChip(icon: Icons.videocam_outlined, label: 'Add Video', color: AuthPalette.lavenderMist, onTap: onAddVideo),
-          _GalleryActionChip(icon: Icons.photo_camera_outlined, label: 'Camera', color: AuthPalette.powderBlue, onTap: onCamera),
-          _GalleryActionChip(icon: Icons.photo_library_outlined, label: 'Gallery', color: AuthPalette.mint, onTap: onGallery),
+          _GalleryActionChip(
+            icon: Icons.add_photo_alternate_rounded,
+            label: 'Add Photo',
+            color: AuthPalette.softCoral,
+            onTap: onAddPhoto,
+          ),
+          _GalleryActionChip(
+            icon: Icons.videocam_outlined,
+            label: 'Add Video',
+            color: AuthPalette.lavenderMist,
+            onTap: onAddVideo,
+          ),
+          _GalleryActionChip(
+            icon: Icons.photo_camera_outlined,
+            label: 'Camera',
+            color: AuthPalette.powderBlue,
+            onTap: onCamera,
+          ),
+          _GalleryActionChip(
+            icon: Icons.photo_library_outlined,
+            label: 'Gallery',
+            color: AuthPalette.mint,
+            onTap: onGallery,
+          ),
         ],
       ),
     );
@@ -608,7 +787,12 @@ class _GalleryActionsRow extends StatelessWidget {
 }
 
 class _GalleryActionChip extends StatelessWidget {
-  const _GalleryActionChip({required this.icon, required this.label, required this.color, required this.onTap});
+  const _GalleryActionChip({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
 
   final IconData icon;
   final String label;
@@ -635,7 +819,11 @@ class _GalleryActionChip extends StatelessWidget {
                 const SizedBox(width: 8),
                 Text(
                   label,
-                  style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+                  style: GoogleFonts.nunito(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: AuthPalette.textDark,
+                  ),
                 ),
               ],
             ),
@@ -647,7 +835,11 @@ class _GalleryActionChip extends StatelessWidget {
 }
 
 class _FilterChipsRow extends StatelessWidget {
-  const _FilterChipsRow({required this.filters, required this.selectedIndex, required this.onSelected});
+  const _FilterChipsRow({
+    required this.filters,
+    required this.selectedIndex,
+    required this.onSelected,
+  });
 
   final List<String> filters;
   final int selectedIndex;
@@ -675,7 +867,11 @@ class _FilterChipsRow extends StatelessWidget {
 }
 
 class _FilterChip extends StatelessWidget {
-  const _FilterChip({required this.label, required this.selected, required this.onTap});
+  const _FilterChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
 
   final String label;
   final bool selected;
@@ -688,7 +884,9 @@ class _FilterChip extends StatelessWidget {
       selected: selected,
       label: label,
       child: Material(
-        color: selected ? AuthPalette.softCoral : Colors.white.withValues(alpha: 0.85),
+        color: selected
+            ? AuthPalette.softCoral
+            : Colors.white.withValues(alpha: 0.85),
         borderRadius: BorderRadius.circular(20),
         child: InkWell(
           borderRadius: BorderRadius.circular(20),
@@ -698,7 +896,9 @@ class _FilterChip extends StatelessWidget {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
-                color: selected ? Colors.transparent : AuthPalette.lavenderMist.withValues(alpha: 0.6),
+                color: selected
+                    ? Colors.transparent
+                    : AuthPalette.lavenderMist.withValues(alpha: 0.6),
               ),
             ),
             alignment: Alignment.center,
@@ -760,7 +960,11 @@ class _GalleryThumbnail extends StatelessWidget {
                     const Positioned(
                       top: 8,
                       right: 8,
-                      child: Icon(Icons.favorite_rounded, size: 16, color: Colors.white),
+                      child: Icon(
+                        Icons.favorite_rounded,
+                        size: 16,
+                        color: Colors.white,
+                      ),
                     ),
                   Positioned(
                     left: 0,
@@ -772,14 +976,21 @@ class _GalleryThumbnail extends StatelessWidget {
                         gradient: LinearGradient(
                           begin: Alignment.topCenter,
                           end: Alignment.bottomCenter,
-                          colors: [Colors.transparent, Colors.black.withValues(alpha: 0.45)],
+                          colors: [
+                            Colors.transparent,
+                            Colors.black.withValues(alpha: 0.45),
+                          ],
                         ),
                       ),
                       child: Text(
                         photo.title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.nunito(fontSize: 11.5, fontWeight: FontWeight.w700, color: Colors.white),
+                        style: GoogleFonts.nunito(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
                   ),
@@ -835,8 +1046,12 @@ class _PhotoPreviewDialogState extends State<_PhotoPreviewDialog> {
                   ),
                   const Spacer(),
                   _DarkCircleButton(
-                    icon: photo.isFavorite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                    label: photo.isFavorite ? 'Remove from favorites' : 'Add to favorites',
+                    icon: photo.isFavorite
+                        ? Icons.favorite_rounded
+                        : Icons.favorite_border_rounded,
+                    label: photo.isFavorite
+                        ? 'Remove from favorites'
+                        : 'Add to favorites',
                     iconColor: AuthPalette.softCoral,
                     onTap: _handleToggleFavorite,
                   ),
@@ -852,12 +1067,19 @@ class _PhotoPreviewDialogState extends State<_PhotoPreviewDialog> {
               const SizedBox(height: 18),
               Text(
                 photo.title,
-                style: GoogleFonts.quicksand(fontSize: 19, fontWeight: FontWeight.w800, color: Colors.white),
+                style: GoogleFonts.quicksand(
+                  fontSize: 19,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
+                ),
               ),
               const SizedBox(height: 4),
               Text(
                 photo.dateLabel,
-                style: GoogleFonts.nunito(fontSize: 13, color: Colors.white.withValues(alpha: 0.75)),
+                style: GoogleFonts.nunito(
+                  fontSize: 13,
+                  color: Colors.white.withValues(alpha: 0.75),
+                ),
               ),
               const SizedBox(height: 18),
               AuthOutlineButton(
@@ -925,11 +1147,29 @@ class _MemoryStatsCard extends StatelessWidget {
     return AuthCard(
       child: Row(
         children: [
-          Expanded(child: _StatBlock(icon: Icons.photo_library_rounded, label: 'Total Photos', value: '$totalCount')),
+          Expanded(
+            child: _StatBlock(
+              icon: Icons.photo_library_rounded,
+              label: 'Total Photos',
+              value: '$totalCount',
+            ),
+          ),
           _statDivider(),
-          Expanded(child: _StatBlock(icon: Icons.favorite_rounded, label: 'Favorites', value: '$favoriteCount')),
+          Expanded(
+            child: _StatBlock(
+              icon: Icons.favorite_rounded,
+              label: 'Favorites',
+              value: '$favoriteCount',
+            ),
+          ),
           _statDivider(),
-          Expanded(child: _StatBlock(icon: Icons.calendar_month_rounded, label: 'This Month', value: '$thisMonthCount')),
+          Expanded(
+            child: _StatBlock(
+              icon: Icons.calendar_month_rounded,
+              label: 'This Month',
+              value: '$thisMonthCount',
+            ),
+          ),
         ],
       ),
     );
@@ -946,7 +1186,11 @@ class _MemoryStatsCard extends StatelessWidget {
 }
 
 class _StatBlock extends StatelessWidget {
-  const _StatBlock({required this.icon, required this.label, required this.value});
+  const _StatBlock({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
 
   final IconData icon;
   final String label;
@@ -960,13 +1204,20 @@ class _StatBlock extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           value,
-          style: GoogleFonts.quicksand(fontSize: 16, fontWeight: FontWeight.w800, color: AuthPalette.textDark),
+          style: GoogleFonts.quicksand(
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+            color: AuthPalette.textDark,
+          ),
         ),
         const SizedBox(height: 2),
         Text(
           label,
           textAlign: TextAlign.center,
-          style: GoogleFonts.nunito(fontSize: 10.5, color: AuthPalette.textMuted),
+          style: GoogleFonts.nunito(
+            fontSize: 10.5,
+            color: AuthPalette.textMuted,
+          ),
         ),
       ],
     );
@@ -996,20 +1247,32 @@ class _EmptyGalleryState extends StatelessWidget {
                     color: AuthPalette.blushPink.withValues(alpha: 0.4),
                   ),
                 ),
-                const Icon(Icons.photo_album_rounded, color: AuthPalette.softCoral, size: 38),
+                const Icon(
+                  Icons.photo_album_rounded,
+                  color: AuthPalette.softCoral,
+                  size: 38,
+                ),
               ],
             ),
           ),
           const SizedBox(height: 16),
           Text(
             'Start your baby memory book',
-            style: GoogleFonts.quicksand(fontSize: 16.5, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+            style: GoogleFonts.quicksand(
+              fontSize: 16.5,
+              fontWeight: FontWeight.w700,
+              color: AuthPalette.textDark,
+            ),
           ),
           const SizedBox(height: 6),
           Text(
             'Every smile, giggle, and tiny milestone deserves a page of its own.',
             textAlign: TextAlign.center,
-            style: GoogleFonts.nunito(fontSize: 12.5, color: AuthPalette.textMuted, height: 1.4),
+            style: GoogleFonts.nunito(
+              fontSize: 12.5,
+              color: AuthPalette.textMuted,
+              height: 1.4,
+            ),
           ),
           const SizedBox(height: 16),
           AuthPrimaryButton(
@@ -1036,7 +1299,9 @@ class _PhotoSourceSheet extends StatelessWidget {
         decoration: BoxDecoration(
           color: AuthPalette.warmCream,
           borderRadius: BorderRadius.circular(28),
-          border: Border.all(color: AuthPalette.lavenderMist.withValues(alpha: 0.5)),
+          border: Border.all(
+            color: AuthPalette.lavenderMist.withValues(alpha: 0.5),
+          ),
           boxShadow: [
             BoxShadow(
               color: AuthPalette.softCoral.withValues(alpha: 0.18),
@@ -1062,7 +1327,11 @@ class _PhotoSourceSheet extends StatelessWidget {
             ),
             Text(
               'Add a photo',
-              style: GoogleFonts.quicksand(fontSize: 18, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+              style: GoogleFonts.quicksand(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: AuthPalette.textDark,
+              ),
             ),
             const SizedBox(height: 16),
             _SourceOptionTile(
@@ -1086,7 +1355,12 @@ class _PhotoSourceSheet extends StatelessWidget {
 }
 
 class _SourceOptionTile extends StatelessWidget {
-  const _SourceOptionTile({required this.icon, required this.label, required this.color, required this.onTap});
+  const _SourceOptionTile({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
 
   final IconData icon;
   final String label;
@@ -1109,7 +1383,11 @@ class _SourceOptionTile extends StatelessWidget {
               const SizedBox(width: 12),
               Text(
                 label,
-                style: GoogleFonts.nunito(fontSize: 14, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+                style: GoogleFonts.nunito(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: AuthPalette.textDark,
+                ),
               ),
             ],
           ),

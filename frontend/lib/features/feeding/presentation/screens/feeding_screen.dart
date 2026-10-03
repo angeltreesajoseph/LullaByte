@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/router/route_paths.dart';
+import '../../../baby_management/application/baby_profile_store.dart';
+import '../../../baby_management/application/profile_tracker.dart';
 import '../../../authentication/presentation/widgets/auth_background.dart';
 import '../../../authentication/presentation/widgets/auth_form_controls.dart';
 import '../../../authentication/presentation/widgets/auth_palette.dart';
@@ -13,22 +15,22 @@ enum _FeedingType { breastfeed, bottle, solids }
 
 extension _FeedingTypeX on _FeedingType {
   String get label => switch (this) {
-        _FeedingType.breastfeed => 'Breastfeed',
-        _FeedingType.bottle => 'Bottle',
-        _FeedingType.solids => 'Solids',
-      };
+    _FeedingType.breastfeed => 'Breastfeed',
+    _FeedingType.bottle => 'Bottle',
+    _FeedingType.solids => 'Solids',
+  };
 
   IconData get icon => switch (this) {
-        _FeedingType.breastfeed => Icons.favorite_rounded,
-        _FeedingType.bottle => Icons.local_drink_rounded,
-        _FeedingType.solids => Icons.restaurant_rounded,
-      };
+    _FeedingType.breastfeed => Icons.favorite_rounded,
+    _FeedingType.bottle => Icons.local_drink_rounded,
+    _FeedingType.solids => Icons.restaurant_rounded,
+  };
 
   Color get color => switch (this) {
-        _FeedingType.breastfeed => AuthPalette.softCoral,
-        _FeedingType.bottle => AuthPalette.powderBlue,
-        _FeedingType.solids => AuthPalette.mint,
-      };
+    _FeedingType.breastfeed => AuthPalette.softCoral,
+    _FeedingType.bottle => AuthPalette.powderBlue,
+    _FeedingType.solids => AuthPalette.mint,
+  };
 }
 
 class _FeedingEntry {
@@ -65,7 +67,8 @@ class FeedingScreen extends StatefulWidget {
   State<FeedingScreen> createState() => _FeedingScreenState();
 }
 
-class _FeedingScreenState extends State<FeedingScreen> with SingleTickerProviderStateMixin {
+class _FeedingScreenState extends State<FeedingScreen>
+    with SingleTickerProviderStateMixin, ProfileTracker<FeedingScreen> {
   late final AnimationController _entranceController;
   late final Animation<double> _contentFade;
   late final Animation<Offset> _contentSlide;
@@ -80,34 +83,65 @@ class _FeedingScreenState extends State<FeedingScreen> with SingleTickerProvider
   TimeOfDay? _selectedTime;
   bool _reminderEnabled = true;
 
-  static const _babyName = 'Lily';
-  static const _todaysTotalMilkMl = 640;
-  static const _nextFeedLabel = '4:30 PM • in 1h 45m';
-  static const _lastFeedLabel = '2:30 PM • 1h 15m ago';
-  static const _avgIntervalLabel = '2h 40m';
-  static const _longestFeedLabel = '28 min • Breastfeed';
-  static const _nightFeedsLabel = '2 feeds after 10 PM';
+  String get _babyName => BabyProfileStore.name;
+  int get _todaysTotalMilkMl => _history.fold(
+    0,
+    (sum, e) =>
+        sum +
+        (e.amountLabel.endsWith(' ml')
+            ? int.tryParse(e.amountLabel.split(' ').first) ?? 0
+            : 0),
+  );
+  static const _nextFeedLabel = 'Not recorded';
+  static const _lastFeedLabel = 'Not recorded';
+  static const _avgIntervalLabel = 'Not recorded';
+  static const _longestFeedLabel = 'Not recorded';
+  static const _nightFeedsLabel = 'Not recorded';
 
   static const _intakeChart = <_IntakePoint>[
-    _IntakePoint(label: '6a', ml: 90),
-    _IntakePoint(label: '9a', ml: 120),
-    _IntakePoint(label: '12p', ml: 60),
-    _IntakePoint(label: '3p', ml: 150),
-    _IntakePoint(label: '6p', ml: 100),
-    _IntakePoint(label: '9p', ml: 120),
+    _IntakePoint(label: '6a', ml: 0),
+    _IntakePoint(label: '9a', ml: 0),
+    _IntakePoint(label: '12p', ml: 0),
+    _IntakePoint(label: '3p', ml: 0),
+    _IntakePoint(label: '6p', ml: 0),
+    _IntakePoint(label: '9p', ml: 0),
   ];
 
-  final List<_FeedingEntry> _history = [
-    const _FeedingEntry(type: _FeedingType.bottle, amountLabel: '120 ml', durationLabel: '10 min', timeLabel: '2:30 PM'),
-    const _FeedingEntry(type: _FeedingType.breastfeed, amountLabel: '—', durationLabel: '18 min', timeLabel: '11:45 AM'),
-    const _FeedingEntry(type: _FeedingType.solids, amountLabel: '3 tbsp mashed banana', durationLabel: '12 min', timeLabel: '9:30 AM'),
-    const _FeedingEntry(type: _FeedingType.bottle, amountLabel: '90 ml', durationLabel: '8 min', timeLabel: '6:15 AM'),
-    const _FeedingEntry(type: _FeedingType.breastfeed, amountLabel: '—', durationLabel: '22 min', timeLabel: '2:10 AM'),
-  ];
+  final List<_FeedingEntry> _history = [];
+
+  @override
+  String get trackerKind => 'feeding';
+  @override
+  List<Map<String, dynamic>> encodeEntries() => _history
+      .map(
+        (e) => {
+          'type': e.type.name,
+          'amount': e.amountLabel,
+          'duration': e.durationLabel,
+          'time': e.timeLabel,
+        },
+      )
+      .toList();
+  @override
+  void decodeEntries(List<Map<String, dynamic>> entries) {
+    _history
+      ..clear()
+      ..addAll(
+        entries.map(
+          (e) => _FeedingEntry(
+            type: _FeedingType.values.byName(e['type'] as String),
+            amountLabel: e['amount'] as String,
+            durationLabel: e['duration'] as String,
+            timeLabel: e['time'] as String,
+          ),
+        ),
+      );
+  }
 
   @override
   void initState() {
     super.initState();
+    startTracker();
     _entranceController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 900),
@@ -116,20 +150,28 @@ class _FeedingScreenState extends State<FeedingScreen> with SingleTickerProvider
       parent: _entranceController,
       curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
     );
-    _contentSlide = Tween<Offset>(begin: const Offset(0, 0.04), end: Offset.zero).animate(
-      CurvedAnimation(parent: _entranceController, curve: const Interval(0.0, 0.6, curve: Curves.easeOutCubic)),
-    );
+    _contentSlide =
+        Tween<Offset>(begin: const Offset(0, 0.04), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _entranceController,
+            curve: const Interval(0.0, 0.6, curve: Curves.easeOutCubic),
+          ),
+        );
     _headerFade = CurvedAnimation(
       parent: _entranceController,
       curve: const Interval(0.1, 0.6, curve: Curves.easeOut),
     );
     _headerScale = Tween<double>(begin: 0.9, end: 1.0).animate(
-      CurvedAnimation(parent: _entranceController, curve: const Interval(0.1, 0.8, curve: Curves.easeOutBack)),
+      CurvedAnimation(
+        parent: _entranceController,
+        curve: const Interval(0.1, 0.8, curve: Curves.easeOutBack),
+      ),
     );
   }
 
   @override
   void dispose() {
+    stopTracker();
     _entranceController.dispose();
     _amountController.dispose();
     _durationController.dispose();
@@ -144,10 +186,15 @@ class _FeedingScreenState extends State<FeedingScreen> with SingleTickerProvider
         SnackBar(
           behavior: SnackBarBehavior.floating,
           backgroundColor: AuthPalette.textDark,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
           content: Text(
             message,
-            style: GoogleFonts.nunito(color: Colors.white, fontWeight: FontWeight.w600),
+            style: GoogleFonts.nunito(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       );
@@ -167,7 +214,9 @@ class _FeedingScreenState extends State<FeedingScreen> with SingleTickerProvider
               onSurface: AuthPalette.textDark,
             ),
             textButtonTheme: TextButtonThemeData(
-              style: TextButton.styleFrom(foregroundColor: AuthPalette.softCoral),
+              style: TextButton.styleFrom(
+                foregroundColor: AuthPalette.softCoral,
+              ),
             ),
           ),
           child: child!,
@@ -179,6 +228,7 @@ class _FeedingScreenState extends State<FeedingScreen> with SingleTickerProvider
   }
 
   void _handleSaveFeeding() {
+    if (!trackerReady) return;
     final amount = _amountController.text.trim();
     final duration = _durationController.text.trim();
 
@@ -194,7 +244,11 @@ class _FeedingScreenState extends State<FeedingScreen> with SingleTickerProvider
         _FeedingEntry(
           type: _selectedType,
           amountLabel: amount.isEmpty ? '—' : amount,
-          durationLabel: duration.isEmpty ? '—' : (RegExp(r'^\d+$').hasMatch(duration) ? '$duration min' : duration),
+          durationLabel: duration.isEmpty
+              ? '—'
+              : (RegExp(r'^\d+$').hasMatch(duration)
+                    ? '$duration min'
+                    : duration),
           timeLabel: timeLabel,
         ),
       );
@@ -203,7 +257,7 @@ class _FeedingScreenState extends State<FeedingScreen> with SingleTickerProvider
       _notesController.clear();
       _selectedTime = null;
     });
-    _showToast('Feeding saved 🌙');
+    saveTracker();
   }
 
   @override
@@ -229,7 +283,10 @@ class _FeedingScreenState extends State<FeedingScreen> with SingleTickerProvider
                         children: [
                           Row(
                             children: [
-                              AuthBackButton(onPressed: () => context.go(RoutePaths.dashboard)),
+                              AuthBackButton(
+                                onPressed: () =>
+                                    context.go(RoutePaths.dashboard),
+                              ),
                               const Spacer(),
                             ],
                           ),
@@ -237,7 +294,7 @@ class _FeedingScreenState extends State<FeedingScreen> with SingleTickerProvider
                             opacity: _headerFade,
                             child: ScaleTransition(
                               scale: _headerScale,
-                              child: const _FeedingHeaderCard(
+                              child: _FeedingHeaderCard(
                                 babyName: _babyName,
                                 totalMilkMl: _todaysTotalMilkMl,
                               ),
@@ -246,7 +303,8 @@ class _FeedingScreenState extends State<FeedingScreen> with SingleTickerProvider
                           const SizedBox(height: 20),
                           _FeedingTypeSegmentedControl(
                             selected: _selectedType,
-                            onChanged: (type) => setState(() => _selectedType = type),
+                            onChanged: (type) =>
+                                setState(() => _selectedType = type),
                           ),
                           const SizedBox(height: 22),
                           const _SectionHeading(title: 'Add Feeding'),
@@ -268,7 +326,11 @@ class _FeedingScreenState extends State<FeedingScreen> with SingleTickerProvider
                             reminderEnabled: _reminderEnabled,
                             onReminderChanged: (value) {
                               setState(() => _reminderEnabled = value);
-                              _showToast(value ? 'Feeding reminders turned on 🌙' : 'Feeding reminders turned off');
+                              _showToast(
+                                value
+                                    ? 'Feeding reminders turned on 🌙'
+                                    : 'Feeding reminders turned off',
+                              );
                             },
                           ),
                           const SizedBox(height: 22),
@@ -276,14 +338,20 @@ class _FeedingScreenState extends State<FeedingScreen> with SingleTickerProvider
                           const SizedBox(height: 10),
                           if (_history.isEmpty)
                             _EmptyFeedingState(
-                              onLogFirstFeeding: () => _showToast('Log a feeding using the form above 🌙'),
+                              onLogFirstFeeding: () => _showToast(
+                                'Log a feeding using the form above 🌙',
+                              ),
                             )
                           else
                             AuthCard(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
-                                  for (var i = 0; i < math.min(5, _history.length); i++) ...[
+                                  for (
+                                    var i = 0;
+                                    i < math.min(5, _history.length);
+                                    i++
+                                  ) ...[
                                     if (i > 0) const _InfoDivider(),
                                     _FeedingHistoryRow(entry: _history[i]),
                                   ],
@@ -348,23 +416,68 @@ class _FeedingFloatingDecor extends StatefulWidget {
   State<_FeedingFloatingDecor> createState() => _FeedingFloatingDecorState();
 }
 
-class _FeedingFloatingDecorState extends State<_FeedingFloatingDecor> with SingleTickerProviderStateMixin {
+class _FeedingFloatingDecorState extends State<_FeedingFloatingDecor>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
 
   static const _specs = <_DecorSpec>[
-    _DecorSpec(icon: Icons.star_rounded, top: 0.03, left: 0.09, size: 12, color: AuthPalette.softCoral, phase: 0.0),
-    _DecorSpec(icon: Icons.cloud_rounded, top: 0.05, left: 0.85, size: 20, color: AuthPalette.powderBlue, phase: 0.4),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.19, left: 0.91, size: 10, color: AuthPalette.mint, phase: 0.25),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.28, left: 0.05, size: 11, color: AuthPalette.lavenderMist, phase: 0.6),
-    _DecorSpec(icon: Icons.cloud_rounded, top: 0.53, left: 0.07, size: 16, color: AuthPalette.blushPink, phase: 0.15),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.70, left: 0.91, size: 12, color: AuthPalette.softCoral, phase: 0.5),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.03,
+      left: 0.09,
+      size: 12,
+      color: AuthPalette.softCoral,
+      phase: 0.0,
+    ),
+    _DecorSpec(
+      icon: Icons.cloud_rounded,
+      top: 0.05,
+      left: 0.85,
+      size: 20,
+      color: AuthPalette.powderBlue,
+      phase: 0.4,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.19,
+      left: 0.91,
+      size: 10,
+      color: AuthPalette.mint,
+      phase: 0.25,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.28,
+      left: 0.05,
+      size: 11,
+      color: AuthPalette.lavenderMist,
+      phase: 0.6,
+    ),
+    _DecorSpec(
+      icon: Icons.cloud_rounded,
+      top: 0.53,
+      left: 0.07,
+      size: 16,
+      color: AuthPalette.blushPink,
+      phase: 0.15,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.70,
+      left: 0.91,
+      size: 12,
+      color: AuthPalette.softCoral,
+      phase: 0.5,
+    ),
   ];
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(seconds: 4))
-      ..repeat(reverse: true);
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 4),
+    )..repeat(reverse: true);
   }
 
   @override
@@ -387,7 +500,12 @@ class _FeedingFloatingDecorState extends State<_FeedingFloatingDecor> with Singl
                   child: AnimatedBuilder(
                     animation: _controller,
                     builder: (context, child) {
-                      final t = (math.sin((_controller.value + spec.phase) * math.pi * 2) + 1) / 2;
+                      final t =
+                          (math.sin(
+                                (_controller.value + spec.phase) * math.pi * 2,
+                              ) +
+                              1) /
+                          2;
                       return Opacity(opacity: 0.07 + (t * 0.09), child: child);
                     },
                     child: Icon(spec.icon, size: spec.size, color: spec.color),
@@ -430,7 +548,11 @@ class _SectionHeading extends StatelessWidget {
       padding: const EdgeInsets.only(left: 4),
       child: Text(
         title,
-        style: GoogleFonts.quicksand(fontSize: 17, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+        style: GoogleFonts.quicksand(
+          fontSize: 17,
+          fontWeight: FontWeight.w700,
+          color: AuthPalette.textDark,
+        ),
       ),
     );
   }
@@ -441,7 +563,10 @@ class _InfoDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Divider(color: AuthPalette.lavenderMist.withValues(alpha: 0.4), height: 1);
+    return Divider(
+      color: AuthPalette.lavenderMist.withValues(alpha: 0.4),
+      height: 1,
+    );
   }
 }
 
@@ -465,7 +590,9 @@ class _FeedingHeaderCard extends StatelessWidget {
           ],
         ),
         borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: AuthPalette.lavenderMist.withValues(alpha: 0.5)),
+        border: Border.all(
+          color: AuthPalette.lavenderMist.withValues(alpha: 0.5),
+        ),
         boxShadow: [
           BoxShadow(
             color: AuthPalette.softCoral.withValues(alpha: 0.14),
@@ -500,7 +627,11 @@ class _FeedingHeaderCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                child: const Icon(Icons.local_drink_rounded, color: AuthPalette.softCoral, size: 30),
+                child: const Icon(
+                  Icons.local_drink_rounded,
+                  color: AuthPalette.softCoral,
+                  size: 30,
+                ),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -518,7 +649,10 @@ class _FeedingHeaderCard extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       "$babyName's feeding routine",
-                      style: GoogleFonts.nunito(fontSize: 13.5, color: AuthPalette.textMuted),
+                      style: GoogleFonts.nunito(
+                        fontSize: 13.5,
+                        color: AuthPalette.textMuted,
+                      ),
                     ),
                   ],
                 ),
@@ -534,16 +668,28 @@ class _FeedingHeaderCard extends StatelessWidget {
             ),
             child: Row(
               children: [
-                const Icon(Icons.water_drop_rounded, size: 18, color: AuthPalette.softCoral),
+                const Icon(
+                  Icons.water_drop_rounded,
+                  size: 18,
+                  color: AuthPalette.softCoral,
+                ),
                 const SizedBox(width: 10),
                 Text(
-                  "Today's total milk",
-                  style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+                  'Recorded milk total',
+                  style: GoogleFonts.nunito(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: AuthPalette.textDark,
+                  ),
                 ),
                 const Spacer(),
                 Text(
                   '$totalMilkMl ml',
-                  style: GoogleFonts.quicksand(fontSize: 17, fontWeight: FontWeight.w800, color: AuthPalette.textDark),
+                  style: GoogleFonts.quicksand(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    color: AuthPalette.textDark,
+                  ),
                 ),
               ],
             ),
@@ -555,7 +701,10 @@ class _FeedingHeaderCard extends StatelessWidget {
 }
 
 class _FeedingTypeSegmentedControl extends StatelessWidget {
-  const _FeedingTypeSegmentedControl({required this.selected, required this.onChanged});
+  const _FeedingTypeSegmentedControl({
+    required this.selected,
+    required this.onChanged,
+  });
 
   final _FeedingType selected;
   final ValueChanged<_FeedingType> onChanged;
@@ -567,7 +716,9 @@ class _FeedingTypeSegmentedControl extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.85),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AuthPalette.lavenderMist.withValues(alpha: 0.5)),
+        border: Border.all(
+          color: AuthPalette.lavenderMist.withValues(alpha: 0.5),
+        ),
       ),
       child: Row(
         children: [
@@ -586,7 +737,11 @@ class _FeedingTypeSegmentedControl extends StatelessWidget {
 }
 
 class _SegmentButton extends StatelessWidget {
-  const _SegmentButton({required this.type, required this.selected, required this.onTap});
+  const _SegmentButton({
+    required this.type,
+    required this.selected,
+    required this.onTap,
+  });
 
   final _FeedingType type;
   final bool selected;
@@ -614,7 +769,11 @@ class _SegmentButton extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(type.icon, size: 18, color: selected ? Colors.white : AuthPalette.textMuted),
+                  Icon(
+                    type.icon,
+                    size: 18,
+                    color: selected ? Colors.white : AuthPalette.textMuted,
+                  ),
                   const SizedBox(height: 3),
                   Text(
                     type.label,
@@ -684,7 +843,10 @@ class _AddFeedingCard extends StatelessWidget {
           TextFormField(
             controller: notesController,
             maxLines: 3,
-            style: GoogleFonts.nunito(fontSize: 15, color: AuthPalette.textDark),
+            style: GoogleFonts.nunito(
+              fontSize: 15,
+              color: AuthPalette.textDark,
+            ),
             cursorColor: AuthPalette.softCoral,
             decoration: authPastelDecoration(
               label: 'Notes',
@@ -720,24 +882,44 @@ class _TimePickerField extends StatelessWidget {
         decoration: InputDecoration(
           labelText: 'Time',
           hintText: 'Select a time',
-          labelStyle: GoogleFonts.nunito(color: AuthPalette.textMuted, fontSize: 14),
-          hintStyle: GoogleFonts.nunito(color: AuthPalette.textMuted.withValues(alpha: 0.6), fontSize: 14),
-          prefixIcon: const Icon(Icons.access_time_rounded, color: AuthPalette.textMuted),
-          suffixIcon: const Icon(Icons.expand_more_rounded, color: AuthPalette.textMuted),
+          labelStyle: GoogleFonts.nunito(
+            color: AuthPalette.textMuted,
+            fontSize: 14,
+          ),
+          hintStyle: GoogleFonts.nunito(
+            color: AuthPalette.textMuted.withValues(alpha: 0.6),
+            fontSize: 14,
+          ),
+          prefixIcon: const Icon(
+            Icons.access_time_rounded,
+            color: AuthPalette.textMuted,
+          ),
+          suffixIcon: const Icon(
+            Icons.expand_more_rounded,
+            color: AuthPalette.textMuted,
+          ),
           filled: true,
           fillColor: AuthPalette.blushPink.withValues(alpha: 0.28),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 16,
+          ),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(18),
             borderSide: BorderSide.none,
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(18),
-            borderSide: BorderSide(color: AuthPalette.lavenderMist.withValues(alpha: 0.7)),
+            borderSide: BorderSide(
+              color: AuthPalette.lavenderMist.withValues(alpha: 0.7),
+            ),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(18),
-            borderSide: const BorderSide(color: AuthPalette.softCoral, width: 2),
+            borderSide: const BorderSide(
+              color: AuthPalette.softCoral,
+              width: 2,
+            ),
           ),
         ),
         child: Text(
@@ -768,9 +950,19 @@ class _TodaysScheduleCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _ScheduleRow(icon: Icons.schedule_rounded, color: AuthPalette.softCoral, title: 'Next Feed', detail: nextFeedLabel),
+          _ScheduleRow(
+            icon: Icons.schedule_rounded,
+            color: AuthPalette.softCoral,
+            title: 'Next Feed',
+            detail: nextFeedLabel,
+          ),
           const SizedBox(height: 14),
-          _ScheduleRow(icon: Icons.history_rounded, color: AuthPalette.powderBlue, title: 'Last Feed', detail: lastFeedLabel),
+          _ScheduleRow(
+            icon: Icons.history_rounded,
+            color: AuthPalette.powderBlue,
+            title: 'Last Feed',
+            detail: lastFeedLabel,
+          ),
           const SizedBox(height: 6),
           const _InfoDivider(),
           const SizedBox(height: 6),
@@ -779,14 +971,25 @@ class _TodaysScheduleCard extends StatelessWidget {
               Container(
                 width: 38,
                 height: 38,
-                decoration: BoxDecoration(color: AuthPalette.mint.withValues(alpha: 0.3), shape: BoxShape.circle),
-                child: const Icon(Icons.notifications_active_outlined, size: 18, color: AuthPalette.textDark),
+                decoration: BoxDecoration(
+                  color: AuthPalette.mint.withValues(alpha: 0.3),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.notifications_active_outlined,
+                  size: 18,
+                  color: AuthPalette.textDark,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
                   'Feeding Reminders',
-                  style: GoogleFonts.nunito(fontSize: 13.5, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+                  style: GoogleFonts.nunito(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w700,
+                    color: AuthPalette.textDark,
+                  ),
                 ),
               ),
               Switch(
@@ -795,7 +998,9 @@ class _TodaysScheduleCard extends StatelessWidget {
                 activeThumbColor: Colors.white,
                 activeTrackColor: AuthPalette.softCoral,
                 inactiveThumbColor: Colors.white,
-                inactiveTrackColor: AuthPalette.textMuted.withValues(alpha: 0.4),
+                inactiveTrackColor: AuthPalette.textMuted.withValues(
+                  alpha: 0.4,
+                ),
               ),
             ],
           ),
@@ -806,7 +1011,12 @@ class _TodaysScheduleCard extends StatelessWidget {
 }
 
 class _ScheduleRow extends StatelessWidget {
-  const _ScheduleRow({required this.icon, required this.color, required this.title, required this.detail});
+  const _ScheduleRow({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.detail,
+  });
 
   final IconData icon;
   final Color color;
@@ -820,7 +1030,10 @@ class _ScheduleRow extends StatelessWidget {
         Container(
           width: 38,
           height: 38,
-          decoration: BoxDecoration(color: color.withValues(alpha: 0.3), shape: BoxShape.circle),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.3),
+            shape: BoxShape.circle,
+          ),
           child: Icon(icon, size: 18, color: AuthPalette.textDark),
         ),
         const SizedBox(width: 12),
@@ -830,11 +1043,18 @@ class _ScheduleRow extends StatelessWidget {
             children: [
               Text(
                 title,
-                style: GoogleFonts.nunito(fontSize: 13.5, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+                style: GoogleFonts.nunito(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w700,
+                  color: AuthPalette.textDark,
+                ),
               ),
               Text(
                 detail,
-                style: GoogleFonts.nunito(fontSize: 12, color: AuthPalette.textMuted),
+                style: GoogleFonts.nunito(
+                  fontSize: 12,
+                  color: AuthPalette.textMuted,
+                ),
               ),
             ],
           ),
@@ -858,7 +1078,10 @@ class _FeedingHistoryRow extends StatelessWidget {
           Container(
             width: 40,
             height: 40,
-            decoration: BoxDecoration(color: entry.type.color.withValues(alpha: 0.3), shape: BoxShape.circle),
+            decoration: BoxDecoration(
+              color: entry.type.color.withValues(alpha: 0.3),
+              shape: BoxShape.circle,
+            ),
             child: Icon(entry.type.icon, size: 18, color: AuthPalette.textDark),
           ),
           const SizedBox(width: 12),
@@ -868,12 +1091,19 @@ class _FeedingHistoryRow extends StatelessWidget {
               children: [
                 Text(
                   entry.type.label,
-                  style: GoogleFonts.nunito(fontSize: 14, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+                  style: GoogleFonts.nunito(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: AuthPalette.textDark,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   '${entry.amountLabel} · ${entry.durationLabel}',
-                  style: GoogleFonts.nunito(fontSize: 12, color: AuthPalette.textMuted),
+                  style: GoogleFonts.nunito(
+                    fontSize: 12,
+                    color: AuthPalette.textMuted,
+                  ),
                 ),
               ],
             ),
@@ -881,7 +1111,11 @@ class _FeedingHistoryRow extends StatelessWidget {
           const SizedBox(width: 8),
           Text(
             entry.timeLabel,
-            style: GoogleFonts.nunito(fontSize: 12, fontWeight: FontWeight.w700, color: AuthPalette.textMuted),
+            style: GoogleFonts.nunito(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: AuthPalette.textMuted,
+            ),
           ),
         ],
       ),
@@ -903,7 +1137,9 @@ class _DailyIntakeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final maxMl = points.map((p) => p.ml).reduce(math.max);
+    final maxMl = points
+        .map((p) => p.ml)
+        .fold<double>(1, (a, b) => math.max(a, b));
 
     return AuthCard(
       child: Column(
@@ -931,7 +1167,10 @@ class _DailyIntakeCard extends StatelessWidget {
                               gradient: const LinearGradient(
                                 begin: Alignment.bottomCenter,
                                 end: Alignment.topCenter,
-                                colors: [AuthPalette.powderBlue, AuthPalette.mint],
+                                colors: [
+                                  AuthPalette.powderBlue,
+                                  AuthPalette.mint,
+                                ],
                               ),
                             ),
                           ),
@@ -952,7 +1191,10 @@ class _DailyIntakeCard extends StatelessWidget {
                   child: Text(
                     points[i].label,
                     textAlign: TextAlign.center,
-                    style: GoogleFonts.nunito(fontSize: 10.5, color: AuthPalette.textMuted),
+                    style: GoogleFonts.nunito(
+                      fontSize: 10.5,
+                      color: AuthPalette.textMuted,
+                    ),
                   ),
                 ),
               ],
@@ -988,19 +1230,30 @@ class _InsightRow extends StatelessWidget {
           Container(
             width: 38,
             height: 38,
-            decoration: BoxDecoration(color: color.withValues(alpha: 0.3), shape: BoxShape.circle),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.3),
+              shape: BoxShape.circle,
+            ),
             child: Icon(icon, size: 18, color: AuthPalette.textDark),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
               title,
-              style: GoogleFonts.nunito(fontSize: 13.5, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+              style: GoogleFonts.nunito(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w700,
+                color: AuthPalette.textDark,
+              ),
             ),
           ),
           Text(
             detail,
-            style: GoogleFonts.nunito(fontSize: 12.5, fontWeight: FontWeight.w700, color: AuthPalette.textMuted),
+            style: GoogleFonts.nunito(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+              color: AuthPalette.textMuted,
+            ),
           ),
         ],
       ),
@@ -1031,20 +1284,32 @@ class _EmptyFeedingState extends StatelessWidget {
                     color: AuthPalette.powderBlue.withValues(alpha: 0.35),
                   ),
                 ),
-                const Icon(Icons.local_drink_rounded, color: AuthPalette.softCoral, size: 38),
+                const Icon(
+                  Icons.local_drink_rounded,
+                  color: AuthPalette.softCoral,
+                  size: 38,
+                ),
               ],
             ),
           ),
           const SizedBox(height: 16),
           Text(
             'No feedings logged yet',
-            style: GoogleFonts.quicksand(fontSize: 16.5, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+            style: GoogleFonts.quicksand(
+              fontSize: 16.5,
+              fontWeight: FontWeight.w700,
+              color: AuthPalette.textDark,
+            ),
           ),
           const SizedBox(height: 6),
           Text(
-            "Log Lily's first feeding to start building her daily routine.",
+            "Log ${BabyProfileStore.name}'s first feeding to start building her daily routine.",
             textAlign: TextAlign.center,
-            style: GoogleFonts.nunito(fontSize: 12.5, color: AuthPalette.textMuted, height: 1.4),
+            style: GoogleFonts.nunito(
+              fontSize: 12.5,
+              color: AuthPalette.textMuted,
+              height: 1.4,
+            ),
           ),
           const SizedBox(height: 16),
           AuthPrimaryButton(

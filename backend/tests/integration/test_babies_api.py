@@ -70,3 +70,33 @@ def test_protected_routes_require_bearer_credentials() -> None:
 
     assert response.status_code == 401
     assert response.headers["WWW-Authenticate"] == "Bearer"
+
+
+def test_twins_keep_photos_measurements_and_trackers_separate(api_client: TestClient) -> None:
+    first = api_client.post('/api/v1/babies', json={
+        'name': 'Chris', 'photo_data': 'YQ==', 'head_circumference_cm': 30,
+        'blood_group': 'A+',
+    }).json()['data']
+    second = api_client.post('/api/v1/babies', json={
+        'name': 'Alex', 'photo_data': 'Yg==', 'head_circumference_cm': 32,
+        'blood_group': 'B-',
+    }).json()['data']
+    entries = [{'type': 'bottle', 'amount': '90 ml'}]
+    assert api_client.put(f"/api/v1/babies/{first['id']}/trackers/feeding", json=entries).status_code == 200
+    a = api_client.get(f"/api/v1/babies/{first['id']}").json()['data']
+    b = api_client.get(f"/api/v1/babies/{second['id']}").json()['data']
+    assert a['photo_data'] == 'YQ==' and b['photo_data'] == 'Yg=='
+    assert a['head_circumference_cm'] != b['head_circumference_cm']
+    assert a['tracker_data']['feeding'] == entries
+    assert b['tracker_data'] is None
+    memories = [{'title': 'First smile', 'photo_data': 'Yw==', 'favorite': True}]
+    assert api_client.put(f"/api/v1/babies/{first['id']}/trackers/memories", json=memories).status_code == 200
+    updated = api_client.patch(f"/api/v1/babies/{first['id']}", json={'photo_data': 'ZA==', 'name': 'Chris updated'})
+    assert updated.status_code == 200
+    reloaded = api_client.get(f"/api/v1/babies/{first['id']}").json()['data']
+    assert reloaded['photo_data'] == 'ZA=='
+    assert reloaded['tracker_data']['memories'] == memories
+    assert reloaded['tracker_data']['feeding'] == entries
+    assert api_client.get(f"/api/v1/babies/{second['id']}").json()['data']['tracker_data'] is None
+    assert api_client.put(f'/api/v1/babies/{uuid4()}/trackers/feeding', json=entries).status_code == 404
+    assert api_client.put(f"/api/v1/babies/{first['id']}/trackers/unknown", json=[]).status_code == 400

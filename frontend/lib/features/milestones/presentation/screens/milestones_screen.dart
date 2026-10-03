@@ -10,6 +10,7 @@ import '../../../authentication/presentation/widgets/auth_palette.dart';
 import '../../domain/entities/milestone_mock_data.dart';
 import '../../domain/entities/milestone_models.dart';
 import '../../../baby_management/application/baby_profile_store.dart';
+import '../../../baby_management/application/profile_tracker.dart';
 import 'milestone_detail_screen.dart';
 
 /// Level 1 of the Milestones feature: "All Milestones" — a scrollable list
@@ -33,7 +34,8 @@ class MilestonesScreen extends StatefulWidget {
   State<MilestonesScreen> createState() => _MilestonesScreenState();
 }
 
-class _MilestonesScreenState extends State<MilestonesScreen> with SingleTickerProviderStateMixin {
+class _MilestonesScreenState extends State<MilestonesScreen>
+    with SingleTickerProviderStateMixin, ProfileTracker<MilestonesScreen> {
   late final AnimationController _entranceController;
   late final Animation<double> _contentFade;
   late final Animation<Offset> _contentSlide;
@@ -41,6 +43,7 @@ class _MilestonesScreenState extends State<MilestonesScreen> with SingleTickerPr
   @override
   void initState() {
     super.initState();
+    startTracker();
     _entranceController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 900),
@@ -49,26 +52,67 @@ class _MilestonesScreenState extends State<MilestonesScreen> with SingleTickerPr
       parent: _entranceController,
       curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
     );
-    _contentSlide = Tween<Offset>(begin: const Offset(0, 0.04), end: Offset.zero).animate(
-      CurvedAnimation(parent: _entranceController, curve: const Interval(0.0, 0.6, curve: Curves.easeOutCubic)),
-    );
+    _contentSlide =
+        Tween<Offset>(begin: const Offset(0, 0.04), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _entranceController,
+            curve: const Interval(0.0, 0.6, curve: Curves.easeOutCubic),
+          ),
+        );
   }
 
   @override
   void dispose() {
+    stopTracker();
     _entranceController.dispose();
     super.dispose();
   }
 
   Future<void> _openAgeGroup(int index) async {
+    if (!trackerReady) return;
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => MilestoneDetailScreen(ageGroups: mockMilestoneAgeGroups, initialIndex: index),
+        builder: (context) => MilestoneDetailScreen(
+          ageGroups: mockMilestoneAgeGroups,
+          initialIndex: index,
+        ),
       ),
     );
     // The detail screen mutates the same shared list in place, so a
     // refresh here is enough to reflect any checklist changes made there.
     if (mounted) setState(() {});
+    await saveTracker();
+  }
+
+  @override
+  String get trackerKind => 'milestones';
+  @override
+  List<Map<String, dynamic>> encodeEntries() => [
+    for (final group in mockMilestoneAgeGroups)
+      for (final category in group.categories)
+        for (final item in category.items)
+          {
+            'group': group.shortLabel,
+            'category': category.type.name,
+            'name': item.name,
+            'achieved': item.achieved,
+          },
+  ];
+  @override
+  void decodeEntries(List<Map<String, dynamic>> entries) {
+    for (final group in mockMilestoneAgeGroups) {
+      for (final category in group.categories) {
+        for (final item in category.items) {
+          item.achieved = entries.any(
+            (e) =>
+                e['group'] == group.shortLabel &&
+                e['category'] == category.type.name &&
+                e['name'] == item.name &&
+                e['achieved'] == true,
+          );
+        }
+      }
+    }
   }
 
   @override
@@ -94,7 +138,10 @@ class _MilestonesScreenState extends State<MilestonesScreen> with SingleTickerPr
                         children: [
                           Row(
                             children: [
-                              AuthBackButton(onPressed: () => context.go(RoutePaths.dashboard)),
+                              AuthBackButton(
+                                onPressed: () =>
+                                    context.go(RoutePaths.dashboard),
+                              ),
                               const Spacer(),
                             ],
                           ),
@@ -115,18 +162,27 @@ class _MilestonesScreenState extends State<MilestonesScreen> with SingleTickerPr
                                 Text(
                                   "Every baby grows at their own pace. Explore ${BabyProfileStore.name}'s milestones by age group "
                                   'below — tap a card to see the full checklist and celebrate each little win.',
-                                  style: GoogleFonts.nunito(fontSize: 13.5, color: AuthPalette.textMuted, height: 1.5),
+                                  style: GoogleFonts.nunito(
+                                    fontSize: 13.5,
+                                    color: AuthPalette.textMuted,
+                                    height: 1.5,
+                                  ),
                                 ),
                               ],
                             ),
                           ),
                           const SizedBox(height: 20),
-                          for (var i = 0; i < mockMilestoneAgeGroups.length; i++) ...[
+                          for (
+                            var i = 0;
+                            i < mockMilestoneAgeGroups.length;
+                            i++
+                          ) ...[
                             _AgeGroupCard(
                               group: mockMilestoneAgeGroups[i],
                               onTap: () => _openAgeGroup(i),
                             ),
-                            if (i != mockMilestoneAgeGroups.length - 1) const SizedBox(height: 14),
+                            if (i != mockMilestoneAgeGroups.length - 1)
+                              const SizedBox(height: 14),
                           ],
                         ],
                       ),
@@ -149,7 +205,8 @@ class _MilestonesFloatingDecor extends StatefulWidget {
   const _MilestonesFloatingDecor();
 
   @override
-  State<_MilestonesFloatingDecor> createState() => _MilestonesFloatingDecorState();
+  State<_MilestonesFloatingDecor> createState() =>
+      _MilestonesFloatingDecorState();
 }
 
 class _MilestonesFloatingDecorState extends State<_MilestonesFloatingDecor>
@@ -157,19 +214,63 @@ class _MilestonesFloatingDecorState extends State<_MilestonesFloatingDecor>
   late final AnimationController _controller;
 
   static const _specs = <_DecorSpec>[
-    _DecorSpec(icon: Icons.star_rounded, top: 0.03, left: 0.09, size: 12, color: AuthPalette.softCoral, phase: 0.0),
-    _DecorSpec(icon: Icons.cloud_rounded, top: 0.05, left: 0.85, size: 20, color: AuthPalette.powderBlue, phase: 0.4),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.19, left: 0.91, size: 10, color: AuthPalette.mint, phase: 0.25),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.28, left: 0.05, size: 11, color: AuthPalette.lavenderMist, phase: 0.6),
-    _DecorSpec(icon: Icons.cloud_rounded, top: 0.53, left: 0.07, size: 16, color: AuthPalette.blushPink, phase: 0.15),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.70, left: 0.91, size: 12, color: AuthPalette.softCoral, phase: 0.5),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.03,
+      left: 0.09,
+      size: 12,
+      color: AuthPalette.softCoral,
+      phase: 0.0,
+    ),
+    _DecorSpec(
+      icon: Icons.cloud_rounded,
+      top: 0.05,
+      left: 0.85,
+      size: 20,
+      color: AuthPalette.powderBlue,
+      phase: 0.4,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.19,
+      left: 0.91,
+      size: 10,
+      color: AuthPalette.mint,
+      phase: 0.25,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.28,
+      left: 0.05,
+      size: 11,
+      color: AuthPalette.lavenderMist,
+      phase: 0.6,
+    ),
+    _DecorSpec(
+      icon: Icons.cloud_rounded,
+      top: 0.53,
+      left: 0.07,
+      size: 16,
+      color: AuthPalette.blushPink,
+      phase: 0.15,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.70,
+      left: 0.91,
+      size: 12,
+      color: AuthPalette.softCoral,
+      phase: 0.5,
+    ),
   ];
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(seconds: 4))
-      ..repeat(reverse: true);
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 4),
+    )..repeat(reverse: true);
   }
 
   @override
@@ -192,7 +293,12 @@ class _MilestonesFloatingDecorState extends State<_MilestonesFloatingDecor>
                   child: AnimatedBuilder(
                     animation: _controller,
                     builder: (context, child) {
-                      final t = (math.sin((_controller.value + spec.phase) * math.pi * 2) + 1) / 2;
+                      final t =
+                          (math.sin(
+                                (_controller.value + spec.phase) * math.pi * 2,
+                              ) +
+                              1) /
+                          2;
                       return Opacity(opacity: 0.07 + (t * 0.09), child: child);
                     },
                     child: Icon(spec.icon, size: spec.size, color: spec.color),
@@ -232,11 +338,14 @@ class _AgeGroupCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final progress = group.totalCount == 0 ? 0.0 : group.completedCount / group.totalCount;
+    final progress = group.totalCount == 0
+        ? 0.0
+        : group.completedCount / group.totalCount;
 
     return Semantics(
       button: true,
-      label: '${group.fullLabel}, ${group.completedCount} of ${group.totalCount} milestones completed',
+      label:
+          '${group.fullLabel}, ${group.completedCount} of ${group.totalCount} milestones completed',
       child: Material(
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(28),
@@ -248,7 +357,9 @@ class _AgeGroupCard extends StatelessWidget {
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.92),
               borderRadius: BorderRadius.circular(28),
-              border: Border.all(color: AuthPalette.lavenderMist.withValues(alpha: 0.5)),
+              border: Border.all(
+                color: AuthPalette.lavenderMist.withValues(alpha: 0.5),
+              ),
               boxShadow: [
                 BoxShadow(
                   color: AuthPalette.softCoral.withValues(alpha: 0.12),
@@ -280,7 +391,11 @@ class _AgeGroupCard extends StatelessWidget {
                       ),
                     ],
                   ),
-                  child: Icon(group.icon, color: AuthPalette.softCoral, size: 28),
+                  child: Icon(
+                    group.icon,
+                    color: AuthPalette.softCoral,
+                    size: 28,
+                  ),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
@@ -320,8 +435,11 @@ class _AgeGroupCard extends StatelessWidget {
                             return LinearProgressIndicator(
                               value: value,
                               minHeight: 8,
-                              backgroundColor: AuthPalette.lavenderMist.withValues(alpha: 0.3),
-                              valueColor: const AlwaysStoppedAnimation(AuthPalette.mint),
+                              backgroundColor: AuthPalette.lavenderMist
+                                  .withValues(alpha: 0.3),
+                              valueColor: const AlwaysStoppedAnimation(
+                                AuthPalette.mint,
+                              ),
                             );
                           },
                         ),
@@ -330,7 +448,11 @@ class _AgeGroupCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                const Icon(Icons.chevron_right_rounded, color: AuthPalette.textMuted, size: 24),
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  color: AuthPalette.textMuted,
+                  size: 24,
+                ),
               ],
             ),
           ),

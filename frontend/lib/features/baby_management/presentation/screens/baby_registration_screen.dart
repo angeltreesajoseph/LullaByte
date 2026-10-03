@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -58,6 +59,7 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
   late final Animation<Offset> _entranceSlide;
 
   File? _babyPhoto;
+  File? _twinPhoto;
   DateTime? _dateOfBirth;
   DateTime? _twinDateOfBirth;
   _Gender? _gender;
@@ -221,34 +223,49 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
     if (picked != null && mounted) setState(() => _twinDateOfBirth = picked);
   }
 
-  Future<void> _handlePhotoTap() async {
+  Future<void> _handlePhotoTap({bool twin = false}) async {
+    if (_isSubmitting) return;
     final action = await showModalBottomSheet<_PhotoAction>(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (sheetContext) =>
-          _PhotoOptionsSheet(hasPhoto: _babyPhoto != null),
+      builder: (sheetContext) => _PhotoOptionsSheet(
+        hasPhoto: (twin ? _twinPhoto : _babyPhoto) != null,
+      ),
     );
     if (action == null || !mounted) return;
 
     switch (action) {
       case _PhotoAction.camera:
-        await _pickImage(ImageSource.camera);
+        await _pickImage(ImageSource.camera, twin: twin);
       case _PhotoAction.gallery:
-        await _pickImage(ImageSource.gallery);
+        await _pickImage(ImageSource.gallery, twin: twin);
       case _PhotoAction.remove:
-        setState(() => _babyPhoto = null);
+        setState(() {
+          if (twin) {
+            _twinPhoto = null;
+          } else {
+            _babyPhoto = null;
+          }
+        });
     }
   }
 
-  Future<void> _pickImage(ImageSource source) async {
+  Future<void> _pickImage(ImageSource source, {bool twin = false}) async {
     try {
       final picked = await ImagePicker().pickImage(
         source: source,
-        imageQuality: 85,
-        maxWidth: 1024,
+        imageQuality: 65,
+        maxWidth: 512,
+        maxHeight: 512,
       );
       if (picked == null || !mounted) return;
-      setState(() => _babyPhoto = File(picked.path));
+      setState(() {
+        if (twin) {
+          _twinPhoto = File(picked.path);
+        } else {
+          _babyPhoto = File(picked.path);
+        }
+      });
     } catch (_) {
       if (!mounted) return;
       setState(
@@ -300,6 +317,9 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
       if (token != null) dio.options.headers['Authorization'] = 'Bearer $token';
       await BabyApi(dio).create(
         name: _babyNameController.text,
+        photoData: _babyPhoto == null
+            ? null
+            : base64Encode(await _babyPhoto!.readAsBytes()),
         headCircumferenceCm: double.tryParse(_headController.text.trim()),
         birthDate: _dateOfBirth,
         gender: _gender?.name,
@@ -319,6 +339,9 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
       if (_isTwin) {
         await BabyApi(dio).create(
           name: _twinNameController.text,
+          photoData: _twinPhoto == null
+              ? null
+              : base64Encode(await _twinPhoto!.readAsBytes()),
           headCircumferenceCm: double.tryParse(_twinHeadController.text.trim()),
           birthDate: _twinDateOfBirth,
           gender: _twinGender?.name,
@@ -517,6 +540,11 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
                                           ],
                                         ),
                                         const SizedBox(height: 14),
+                                        _headField(
+                                          _headController,
+                                          'Head circumference (cm, optional)',
+                                        ),
+                                        const SizedBox(height: 14),
                                         DropdownButtonFormField<String>(
                                           initialValue: _bloodGroup,
                                           isExpanded: true,
@@ -603,10 +631,6 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
                                               setState(() => _isTwin = value),
                                         ),
                                         const SizedBox(height: 14),
-                                        _headField(
-                                          _headController,
-                                          'Head circumference (cm, optional)',
-                                        ),
                                         AnimatedSize(
                                           duration: const Duration(
                                             milliseconds: 280,
@@ -622,17 +646,32 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
                                                         top: 12,
                                                       ),
                                                   child: Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .stretch,
                                                     children: [
+                                                      Center(
+                                                        child: _BabyPhotoPicker(
+                                                          photo: _twinPhoto,
+                                                          onTap: () =>
+                                                              _handlePhotoTap(
+                                                                twin: true,
+                                                              ),
+                                                        ),
+                                                      ),
+                                                      const SizedBox(
+                                                        height: 22,
+                                                      ),
                                                       AuthTextField(
                                                         controller:
                                                             _twinNameController,
-                                                        label: "Twin's Name",
-                                                        hintText: 'e.g. Ishaan',
+                                                        label: "Baby's Name",
+                                                        hintText: 'e.g. Aanya',
                                                         textCapitalization:
                                                             TextCapitalization
                                                                 .words,
                                                         prefixIcon: Icons
-                                                            .diversity_3_outlined,
+                                                            .child_care_outlined,
                                                         validator:
                                                             _validateTwinName,
                                                         enabled: !_isSubmitting,
@@ -640,52 +679,46 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
                                                       const SizedBox(
                                                         height: 14,
                                                       ),
-                                                      _headField(
-                                                        _twinHeadController,
-                                                        "Twin's head circumference (cm, optional)",
-                                                      ),
-                                                      const SizedBox(
-                                                        height: 14,
-                                                      ),
-                                                      TextFormField(
-                                                        readOnly: true,
-                                                        controller: TextEditingController(
-                                                          text:
-                                                              _twinDateOfBirth ==
-                                                                  null
-                                                              ? ''
-                                                              : DateFormat(
-                                                                  'dd MMM yyyy',
-                                                                ).format(
-                                                                  _twinDateOfBirth!,
-                                                                ),
-                                                        ),
+                                                      _PastelPickerField(
+                                                        label: 'Date of Birth',
+                                                        value:
+                                                            (_twinDateOfBirth ==
+                                                                null
+                                                            ? null
+                                                            : DateFormat(
+                                                                'dd MMM yyyy',
+                                                              ).format(
+                                                                _twinDateOfBirth!,
+                                                              )),
+                                                        hint: 'Select a date',
+                                                        icon:
+                                                            Icons.cake_outlined,
+                                                        enabled: !_isSubmitting,
+                                                        hasError:
+                                                            (_isTwin &&
+                                                            _twinDateOfBirth ==
+                                                                null &&
+                                                            _errorMessage !=
+                                                                null),
                                                         onTap:
                                                             _pickTwinDateOfBirth,
-                                                        validator: (_) =>
-                                                            _twinDateOfBirth ==
-                                                                null
-                                                            ? 'Select your twin\'s date of birth'
-                                                            : null,
-                                                        decoration: authPastelDecoration(
-                                                          label:
-                                                              "Twin's Date of Birth",
-                                                          hint: 'Select date',
-                                                          prefixIcon: Icons
-                                                              .calendar_today_outlined,
+                                                      ),
+                                                      if ((_isTwin &&
+                                                          _twinDateOfBirth ==
+                                                              null &&
+                                                          _errorMessage !=
+                                                              null))
+                                                        const _InlineError(
+                                                          text:
+                                                              'Date of birth is required',
                                                         ),
-                                                      ),
                                                       const SizedBox(
-                                                        height: 14,
+                                                        height: 16,
                                                       ),
-                                                      Column(
-                                                        crossAxisAlignment:
-                                                            CrossAxisAlignment
-                                                                .start,
-                                                        children: [
-                                                          Text(
-                                                            'Twin\'s Gender',
-                                                            style: GoogleFonts.nunito(
+                                                      Text(
+                                                        'Gender',
+                                                        style:
+                                                            GoogleFonts.nunito(
                                                               fontSize: 13,
                                                               fontWeight:
                                                                   FontWeight
@@ -693,25 +726,25 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
                                                               color: AuthPalette
                                                                   .textMuted,
                                                             ),
-                                                          ),
-                                                          const SizedBox(
-                                                            height: 8,
-                                                          ),
-                                                          _GenderSelector(
-                                                            value: _twinGender,
-                                                            enabled:
-                                                                !_isSubmitting,
-                                                            onChanged:
-                                                                (
-                                                                  value,
-                                                                ) => setState(
-                                                                  () =>
-                                                                      _twinGender =
-                                                                          value,
-                                                                ),
-                                                          ),
-                                                        ],
                                                       ),
+                                                      const SizedBox(height: 8),
+                                                      _GenderSelector(
+                                                        value: _twinGender,
+                                                        enabled: !_isSubmitting,
+                                                        onChanged: (value) {
+                                                          setState(() {
+                                                            _twinGender = value;
+                                                          });
+                                                        },
+                                                      ),
+                                                      if ((_isTwin &&
+                                                          _twinGender == null &&
+                                                          _errorMessage !=
+                                                              null))
+                                                        const _InlineError(
+                                                          text:
+                                                              "Please select your baby's gender",
+                                                        ),
                                                       const SizedBox(
                                                         height: 14,
                                                       ),
@@ -725,9 +758,9 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
                                                               controller:
                                                                   _twinWeightController,
                                                               label:
-                                                                  'Twin Weight (kg)',
+                                                                  'Weight (kg)',
                                                               hintText:
-                                                                  'e.g. 3.1',
+                                                                  'e.g. 3.2',
                                                               keyboardType:
                                                                   const TextInputType.numberWithOptions(
                                                                     decimal:
@@ -749,9 +782,9 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
                                                               controller:
                                                                   _twinHeightController,
                                                               label:
-                                                                  'Twin Height (cm)',
+                                                                  'Height (cm)',
                                                               hintText:
-                                                                  'e.g. 49',
+                                                                  'e.g. 50',
                                                               keyboardType:
                                                                   const TextInputType.numberWithOptions(
                                                                     decimal:
@@ -770,15 +803,40 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
                                                       const SizedBox(
                                                         height: 14,
                                                       ),
+                                                      _headField(
+                                                        _twinHeadController,
+                                                        'Head circumference (cm, optional)',
+                                                      ),
+                                                      const SizedBox(
+                                                        height: 14,
+                                                      ),
                                                       DropdownButtonFormField<
                                                         String
                                                       >(
                                                         initialValue:
                                                             _twinBloodGroup,
                                                         isExpanded: true,
+                                                        style:
+                                                            GoogleFonts.nunito(
+                                                              fontSize: 15,
+                                                              color: AuthPalette
+                                                                  .textDark,
+                                                            ),
+                                                        dropdownColor:
+                                                            AuthPalette
+                                                                .warmCream,
+                                                        borderRadius:
+                                                            BorderRadius.circular(
+                                                              18,
+                                                            ),
+                                                        icon: const Icon(
+                                                          Icons
+                                                              .expand_more_rounded,
+                                                          color: AuthPalette
+                                                              .textMuted,
+                                                        ),
                                                         decoration: authPastelDecoration(
-                                                          label:
-                                                              "Twin's Blood Group",
+                                                          label: 'Blood Group',
                                                           hint:
                                                               'Select if known',
                                                           prefixIcon: Icons
@@ -813,7 +871,7 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
                                                         controller:
                                                             _twinPediatricianController,
                                                         label:
-                                                            "Twin's Pediatrician (optional)",
+                                                            'Pediatrician Name (optional)',
                                                         hintText:
                                                             'e.g. Dr. Meera Nair',
                                                         textCapitalization:
@@ -831,7 +889,7 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
                                                         controller:
                                                             _twinHospitalController,
                                                         label:
-                                                            "Twin's Hospital (optional)",
+                                                            'Hospital Name (optional)',
                                                         hintText:
                                                             'e.g. Sunrise Children\'s Hospital',
                                                         textCapitalization:
@@ -850,11 +908,19 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
                                                             _twinAllergyController,
                                                         enabled: !_isSubmitting,
                                                         maxLines: 3,
+                                                        style:
+                                                            GoogleFonts.nunito(
+                                                              fontSize: 15,
+                                                              color: AuthPalette
+                                                                  .textDark,
+                                                            ),
+                                                        cursorColor: AuthPalette
+                                                            .softCoral,
                                                         decoration: authPastelDecoration(
                                                           label:
-                                                              "Twin's Allergy Notes (optional)",
+                                                              'Allergy Notes (optional)',
                                                           hint:
-                                                              'Anything caregivers should know',
+                                                              'Anything you\'d like caregivers to know',
                                                           prefixIcon: Icons
                                                               .health_and_safety_outlined,
                                                         ),

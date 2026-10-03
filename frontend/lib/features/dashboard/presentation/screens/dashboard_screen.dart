@@ -10,6 +10,7 @@ import '../../../../core/router/route_paths.dart';
 import '../../../../core/config/app_config.dart';
 import '../../../baby_management/data/baby_api.dart';
 import '../../../baby_management/application/baby_profile_store.dart';
+import '../../../baby_management/presentation/widgets/baby_avatar.dart';
 import '../../../authentication/presentation/widgets/auth_background.dart';
 import '../../../authentication/presentation/widgets/auth_palette.dart';
 
@@ -50,9 +51,9 @@ class _DashboardScreenState extends State<DashboardScreen>
   List<Map<String, dynamic>> _babies = const [];
   static const _unreadNotifications = 3;
   static const _babyStatus = _BabyStatus.sleeping;
-  static const _lastCryTime = '2 hours ago';
-  static const _sleepSummary = '6h 45m today';
-  static const _feedingSummary = '5 feeds • last at 2:30 PM';
+  static const _lastCryTime = 'Not recorded';
+  static const _sleepSummary = 'Not recorded';
+  static const _feedingSummary = 'Not recorded';
   String get _weightSummary => BabyProfileStore.data['birth_weight_kg'] == null
       ? 'Not recorded'
       : "${BabyProfileStore.data['birth_weight_kg']} kg (registration)";
@@ -313,39 +314,16 @@ class _DashboardScreenState extends State<DashboardScreen>
                                 onTap: () => context.go(RoutePaths.milestones),
                               ),
                               const SizedBox(height: 22),
-                              if (isWide)
-                                IntrinsicHeight(
-                                  child: Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.stretch,
-                                    children: [
-                                      Expanded(
-                                        child: _GrowthSection(
-                                          weightTrend: _weightTrend,
-                                          heightPercentile: _heightPercentile,
-                                          lastMeasuredLabel: _lastMeasuredLabel,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 16),
-                                      const Expanded(
-                                        child: _TodaysCareSection(),
-                                      ),
-                                    ],
-                                  ),
-                                )
-                              else ...[
-                                const _GrowthSection(
-                                  weightTrend: _weightTrend,
-                                  heightPercentile: _heightPercentile,
-                                  lastMeasuredLabel: _lastMeasuredLabel,
+                              Text(
+                                'Care records for ${BabyProfileStore.name}',
+                                style: GoogleFonts.nunito(
+                                  fontWeight: FontWeight.w800,
                                 ),
-                                const SizedBox(height: 22),
-                                const _TodaysCareSection(),
-                              ],
-                              const SizedBox(height: 22),
-                              _SectionHeading(title: 'Recent Activity'),
+                              ),
                               const SizedBox(height: 10),
-                              const _ActivityTimeline(),
+                              const Text(
+                                'Open a tracker above to view and record care for the selected baby.',
+                              ),
                               const SizedBox(height: 12),
                             ],
                           ),
@@ -615,6 +593,7 @@ class _DashboardHeader extends StatelessWidget {
                     right: identical(baby, babies.take(2).last) ? 0 : 8,
                   ),
                   child: _BabyProfileChip(
+                    profile: baby,
                     name: name,
                     selected: selected,
                     onTap: () => onBabySelected(baby),
@@ -631,11 +610,13 @@ class _DashboardHeader extends StatelessWidget {
 
 class _BabyProfileChip extends StatelessWidget {
   const _BabyProfileChip({
+    required this.profile,
     required this.name,
     required this.selected,
     required this.onTap,
   });
   final String name;
+  final Map<String, dynamic> profile;
   final bool selected;
   final VoidCallback onTap;
 
@@ -658,13 +639,7 @@ class _BabyProfileChip extends StatelessWidget {
                 backgroundColor: selected
                     ? Colors.white.withValues(alpha: 0.9)
                     : AuthPalette.lavenderMist,
-                child: Icon(
-                  Icons.child_care_rounded,
-                  size: 20,
-                  color: selected
-                      ? AuthPalette.softCoral
-                      : AuthPalette.textDark,
-                ),
+                child: BabyAvatar(size: 34, profile: profile),
               ),
               const SizedBox(width: 9),
               Expanded(

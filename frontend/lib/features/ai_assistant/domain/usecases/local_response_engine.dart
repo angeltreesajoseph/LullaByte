@@ -6,6 +6,19 @@ class LocalResponseEngine {
     final name = BabyProfileStore.name;
     final data = BabyProfileStore.data;
     final q = question.toLowerCase();
+    final trackers = data['tracker_data'] as Map? ?? {};
+    for (final topic in ['feeding', 'sleep', 'diaper', 'milestones']) {
+      if (q.contains(topic) || (topic == 'feeding' && q.contains('feed'))) {
+        final entries = trackers[topic] as List? ?? [];
+        if (entries.isEmpty)
+          return "No $topic records are available for $name yet.";
+        if (topic == 'milestones') {
+          return "$name has ${entries.where((e) => e['achieved'] == true).length} milestones marked as achieved.";
+        }
+        final latest = entries.first as Map;
+        return "$name has ${entries.length} recorded $topic entries. Latest record: ${latest.entries.map((e) => '${e.key}: ${e.value}').join(', ')}.";
+      }
+    }
     String recorded(String key, String unit) =>
         data[key] == null ? 'not recorded' : '${data[key]}$unit';
     if (q.contains('weight') ||

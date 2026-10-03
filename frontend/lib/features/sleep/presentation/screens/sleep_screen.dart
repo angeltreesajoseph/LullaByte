@@ -6,6 +6,8 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/router/route_paths.dart';
+import '../../../baby_management/application/baby_profile_store.dart';
+import '../../../baby_management/application/profile_tracker.dart';
 import '../../../authentication/presentation/widgets/auth_background.dart';
 import '../../../authentication/presentation/widgets/auth_form_controls.dart';
 import '../../../authentication/presentation/widgets/auth_palette.dart';
@@ -14,19 +16,19 @@ enum _SleepType { nap, night }
 
 extension _SleepTypeX on _SleepType {
   String get label => switch (this) {
-        _SleepType.nap => 'Nap',
-        _SleepType.night => 'Night',
-      };
+    _SleepType.nap => 'Nap',
+    _SleepType.night => 'Night',
+  };
 
   IconData get icon => switch (this) {
-        _SleepType.nap => Icons.wb_twilight_rounded,
-        _SleepType.night => Icons.bedtime_rounded,
-      };
+    _SleepType.nap => Icons.wb_twilight_rounded,
+    _SleepType.night => Icons.bedtime_rounded,
+  };
 
   Color get color => switch (this) {
-        _SleepType.nap => AuthPalette.powderBlue,
-        _SleepType.night => AuthPalette.lavenderMist,
-      };
+    _SleepType.nap => AuthPalette.powderBlue,
+    _SleepType.night => AuthPalette.lavenderMist,
+  };
 }
 
 class _SleepSession {
@@ -42,7 +44,11 @@ class _SleepSession {
 }
 
 class _TimelineBlock {
-  const _TimelineBlock({required this.start, required this.end, required this.type});
+  const _TimelineBlock({
+    required this.start,
+    required this.end,
+    required this.type,
+  });
 
   final double start;
   final double end;
@@ -75,7 +81,8 @@ class SleepScreen extends StatefulWidget {
   State<SleepScreen> createState() => _SleepScreenState();
 }
 
-class _SleepScreenState extends State<SleepScreen> with TickerProviderStateMixin {
+class _SleepScreenState extends State<SleepScreen>
+    with TickerProviderStateMixin, ProfileTracker<SleepScreen> {
   late final AnimationController _entranceController;
   late final Animation<double> _contentFade;
   late final Animation<Offset> _contentSlide;
@@ -88,42 +95,70 @@ class _SleepScreenState extends State<SleepScreen> with TickerProviderStateMixin
   DateTime? _sleepStart;
   Duration _elapsed = Duration.zero;
   _SleepType _selectedType = _SleepType.nap;
-  int _todaysTotalSleepMinutes = (13 * 60) + 20;
+  int _todaysTotalSleepMinutes = 0;
 
-  static const _babyName = 'Lily';
-  static const _avgBedtimeLabel = '8:05 PM';
-  static const _longestNapLabel = '1h 30m • Afternoon nap';
-  static const _nightAwakeningsLabel = '2 times last night';
+  String get _babyName => BabyProfileStore.name;
+  static const _avgBedtimeLabel = 'Not recorded';
+  static const _longestNapLabel = 'Not recorded';
+  static const _nightAwakeningsLabel = 'Not recorded';
 
-  static const _timelineBlocks = <_TimelineBlock>[
-    _TimelineBlock(start: 0.0, end: 0.25, type: _SleepType.night),
-    _TimelineBlock(start: 0.375, end: 0.4375, type: _SleepType.nap),
-    _TimelineBlock(start: 0.5208, end: 0.5833, type: _SleepType.nap),
-    _TimelineBlock(start: 0.6875, end: 0.7188, type: _SleepType.nap),
-    _TimelineBlock(start: 0.8333, end: 1.0, type: _SleepType.night),
-  ];
+  static const _timelineBlocks = <_TimelineBlock>[];
 
   static const _weekTrend = <_WeekPoint>[
-    _WeekPoint(label: 'Mon', hours: 12.5),
-    _WeekPoint(label: 'Tue', hours: 13.0),
-    _WeekPoint(label: 'Wed', hours: 11.8),
-    _WeekPoint(label: 'Thu', hours: 13.5),
-    _WeekPoint(label: 'Fri', hours: 12.0),
-    _WeekPoint(label: 'Sat', hours: 13.8),
-    _WeekPoint(label: 'Sun', hours: 13.2),
+    _WeekPoint(label: 'Mon', hours: 0),
+    _WeekPoint(label: 'Tue', hours: 0),
+    _WeekPoint(label: 'Wed', hours: 0),
+    _WeekPoint(label: 'Thu', hours: 0),
+    _WeekPoint(label: 'Fri', hours: 0),
+    _WeekPoint(label: 'Sat', hours: 0),
+    _WeekPoint(label: 'Sun', hours: 0),
   ];
 
-  final List<_SleepSession> _history = [
-    _SleepSession(type: _SleepType.nap, durationLabel: '45m', timeLabel: '4:30 PM – 5:15 PM'),
-    _SleepSession(type: _SleepType.nap, durationLabel: '1h 30m', timeLabel: '12:30 PM – 2:00 PM'),
-    _SleepSession(type: _SleepType.nap, durationLabel: '1h 30m', timeLabel: '9:00 AM – 10:30 AM'),
-    _SleepSession(type: _SleepType.night, durationLabel: '10h 0m', timeLabel: '8:00 PM – 6:00 AM'),
-    _SleepSession(type: _SleepType.nap, durationLabel: '50m', timeLabel: '5:15 PM – 6:05 PM'),
-  ];
+  final List<_SleepSession> _history = [];
+
+  @override
+  String get trackerKind => 'sleep';
+  @override
+  List<Map<String, dynamic>> encodeEntries() => _history
+      .map(
+        (e) => {
+          'type': e.type.name,
+          'duration': e.durationLabel,
+          'time': e.timeLabel,
+        },
+      )
+      .toList();
+  @override
+  void decodeEntries(List<Map<String, dynamic>> entries) {
+    _tickTimer?.cancel();
+    _isSleeping = false;
+    _sleepStart = null;
+    _elapsed = Duration.zero;
+    _todaysTotalSleepMinutes = 0;
+    _history
+      ..clear()
+      ..addAll(
+        entries.map(
+          (e) => _SleepSession(
+            type: _SleepType.values.byName(e['type'] as String),
+            durationLabel: e['duration'] as String,
+            timeLabel: e['time'] as String,
+          ),
+        ),
+      );
+    _todaysTotalSleepMinutes = _history.fold(0, (sum, entry) {
+      final hours = RegExp(r'(\d+)h').firstMatch(entry.durationLabel);
+      final minutes = RegExp(r'(\d+)m').firstMatch(entry.durationLabel);
+      return sum +
+          (int.tryParse(hours?.group(1) ?? '') ?? 0) * 60 +
+          (int.tryParse(minutes?.group(1) ?? '') ?? 0);
+    });
+  }
 
   @override
   void initState() {
     super.initState();
+    startTracker();
     _entranceController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 900),
@@ -132,21 +167,32 @@ class _SleepScreenState extends State<SleepScreen> with TickerProviderStateMixin
       parent: _entranceController,
       curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
     );
-    _contentSlide = Tween<Offset>(begin: const Offset(0, 0.04), end: Offset.zero).animate(
-      CurvedAnimation(parent: _entranceController, curve: const Interval(0.0, 0.6, curve: Curves.easeOutCubic)),
-    );
+    _contentSlide =
+        Tween<Offset>(begin: const Offset(0, 0.04), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _entranceController,
+            curve: const Interval(0.0, 0.6, curve: Curves.easeOutCubic),
+          ),
+        );
     _headerFade = CurvedAnimation(
       parent: _entranceController,
       curve: const Interval(0.1, 0.6, curve: Curves.easeOut),
     );
     _headerScale = Tween<double>(begin: 0.9, end: 1.0).animate(
-      CurvedAnimation(parent: _entranceController, curve: const Interval(0.1, 0.8, curve: Curves.easeOutBack)),
+      CurvedAnimation(
+        parent: _entranceController,
+        curve: const Interval(0.1, 0.8, curve: Curves.easeOutBack),
+      ),
     );
-    _pulseController = AnimationController(vsync: this, duration: const Duration(seconds: 2));
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    );
   }
 
   @override
   void dispose() {
+    stopTracker();
     _entranceController.dispose();
     _pulseController.dispose();
     _tickTimer?.cancel();
@@ -160,10 +206,15 @@ class _SleepScreenState extends State<SleepScreen> with TickerProviderStateMixin
         SnackBar(
           behavior: SnackBarBehavior.floating,
           backgroundColor: AuthPalette.textDark,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
           content: Text(
             message,
-            style: GoogleFonts.nunito(color: Colors.white, fontWeight: FontWeight.w600),
+            style: GoogleFonts.nunito(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       );
@@ -176,9 +227,11 @@ class _SleepScreenState extends State<SleepScreen> with TickerProviderStateMixin
     return '${hours}h ${minutes}m';
   }
 
-  String _formatTimeOfDay(DateTime dt) => TimeOfDay.fromDateTime(dt).format(context);
+  String _formatTimeOfDay(DateTime dt) =>
+      TimeOfDay.fromDateTime(dt).format(context);
 
   void _startSleep() {
+    if (!trackerReady) return;
     final now = DateTime.now();
     setState(() {
       _isSleeping = true;
@@ -209,7 +262,8 @@ class _SleepScreenState extends State<SleepScreen> with TickerProviderStateMixin
           _SleepSession(
             type: _selectedType,
             durationLabel: _formatDuration(duration),
-            timeLabel: '${_formatTimeOfDay(start)} – ${_formatTimeOfDay(DateTime.now())}',
+            timeLabel:
+                '${_formatTimeOfDay(start)} – ${_formatTimeOfDay(DateTime.now())}',
           ),
         );
         _todaysTotalSleepMinutes += duration.inMinutes;
@@ -217,7 +271,7 @@ class _SleepScreenState extends State<SleepScreen> with TickerProviderStateMixin
       _sleepStart = null;
       _elapsed = Duration.zero;
     });
-    _showToast('Sleep session saved 🌙');
+    saveTracker();
   }
 
   @override
@@ -243,7 +297,10 @@ class _SleepScreenState extends State<SleepScreen> with TickerProviderStateMixin
                         children: [
                           Row(
                             children: [
-                              AuthBackButton(onPressed: () => context.go(RoutePaths.dashboard)),
+                              AuthBackButton(
+                                onPressed: () =>
+                                    context.go(RoutePaths.dashboard),
+                              ),
                               const Spacer(),
                             ],
                           ),
@@ -253,7 +310,9 @@ class _SleepScreenState extends State<SleepScreen> with TickerProviderStateMixin
                               scale: _headerScale,
                               child: _SleepHeaderCard(
                                 babyName: _babyName,
-                                totalSleepLabel: _formatDuration(Duration(minutes: _todaysTotalSleepMinutes)),
+                                totalSleepLabel: _formatDuration(
+                                  Duration(minutes: _todaysTotalSleepMinutes),
+                                ),
                               ),
                             ),
                           ),
@@ -261,7 +320,8 @@ class _SleepScreenState extends State<SleepScreen> with TickerProviderStateMixin
                           _NapNightSegmentedControl(
                             selected: _selectedType,
                             enabled: !_isSleeping,
-                            onChanged: (type) => setState(() => _selectedType = type),
+                            onChanged: (type) =>
+                                setState(() => _selectedType = type),
                           ),
                           const SizedBox(height: 16),
                           _SleepToggleButton(
@@ -277,7 +337,9 @@ class _SleepScreenState extends State<SleepScreen> with TickerProviderStateMixin
                                 ? Padding(
                                     padding: const EdgeInsets.only(top: 16),
                                     child: _CurrentSleepCard(
-                                      startedAtLabel: _sleepStart == null ? '' : _formatTimeOfDay(_sleepStart!),
+                                      startedAtLabel: _sleepStart == null
+                                          ? ''
+                                          : _formatTimeOfDay(_sleepStart!),
                                       elapsedLabel: _formatDuration(_elapsed),
                                       type: _selectedType,
                                     ),
@@ -285,7 +347,9 @@ class _SleepScreenState extends State<SleepScreen> with TickerProviderStateMixin
                                 : const SizedBox.shrink(),
                           ),
                           const SizedBox(height: 22),
-                          const _SectionHeading(title: "Today's Sleep Timeline"),
+                          const _SectionHeading(
+                            title: "Today's Sleep Timeline",
+                          ),
                           const SizedBox(height: 10),
                           const _SleepTimelineCard(blocks: _timelineBlocks),
                           const SizedBox(height: 22),
@@ -298,7 +362,11 @@ class _SleepScreenState extends State<SleepScreen> with TickerProviderStateMixin
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
-                                  for (var i = 0; i < math.min(5, _history.length); i++) ...[
+                                  for (
+                                    var i = 0;
+                                    i < math.min(5, _history.length);
+                                    i++
+                                  ) ...[
                                     if (i > 0) const _InfoDivider(),
                                     _SleepHistoryRow(session: _history[i]),
                                   ],
@@ -364,23 +432,68 @@ class _SleepFloatingDecor extends StatefulWidget {
   State<_SleepFloatingDecor> createState() => _SleepFloatingDecorState();
 }
 
-class _SleepFloatingDecorState extends State<_SleepFloatingDecor> with SingleTickerProviderStateMixin {
+class _SleepFloatingDecorState extends State<_SleepFloatingDecor>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
 
   static const _specs = <_DecorSpec>[
-    _DecorSpec(icon: Icons.star_rounded, top: 0.03, left: 0.09, size: 12, color: AuthPalette.softCoral, phase: 0.0),
-    _DecorSpec(icon: Icons.cloud_rounded, top: 0.05, left: 0.85, size: 20, color: AuthPalette.powderBlue, phase: 0.4),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.19, left: 0.91, size: 10, color: AuthPalette.mint, phase: 0.25),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.28, left: 0.05, size: 11, color: AuthPalette.lavenderMist, phase: 0.6),
-    _DecorSpec(icon: Icons.cloud_rounded, top: 0.53, left: 0.07, size: 16, color: AuthPalette.blushPink, phase: 0.15),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.70, left: 0.91, size: 12, color: AuthPalette.softCoral, phase: 0.5),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.03,
+      left: 0.09,
+      size: 12,
+      color: AuthPalette.softCoral,
+      phase: 0.0,
+    ),
+    _DecorSpec(
+      icon: Icons.cloud_rounded,
+      top: 0.05,
+      left: 0.85,
+      size: 20,
+      color: AuthPalette.powderBlue,
+      phase: 0.4,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.19,
+      left: 0.91,
+      size: 10,
+      color: AuthPalette.mint,
+      phase: 0.25,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.28,
+      left: 0.05,
+      size: 11,
+      color: AuthPalette.lavenderMist,
+      phase: 0.6,
+    ),
+    _DecorSpec(
+      icon: Icons.cloud_rounded,
+      top: 0.53,
+      left: 0.07,
+      size: 16,
+      color: AuthPalette.blushPink,
+      phase: 0.15,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.70,
+      left: 0.91,
+      size: 12,
+      color: AuthPalette.softCoral,
+      phase: 0.5,
+    ),
   ];
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(seconds: 4))
-      ..repeat(reverse: true);
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 4),
+    )..repeat(reverse: true);
   }
 
   @override
@@ -403,7 +516,12 @@ class _SleepFloatingDecorState extends State<_SleepFloatingDecor> with SingleTic
                   child: AnimatedBuilder(
                     animation: _controller,
                     builder: (context, child) {
-                      final t = (math.sin((_controller.value + spec.phase) * math.pi * 2) + 1) / 2;
+                      final t =
+                          (math.sin(
+                                (_controller.value + spec.phase) * math.pi * 2,
+                              ) +
+                              1) /
+                          2;
                       return Opacity(opacity: 0.07 + (t * 0.09), child: child);
                     },
                     child: Icon(spec.icon, size: spec.size, color: spec.color),
@@ -446,7 +564,11 @@ class _SectionHeading extends StatelessWidget {
       padding: const EdgeInsets.only(left: 4),
       child: Text(
         title,
-        style: GoogleFonts.quicksand(fontSize: 17, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+        style: GoogleFonts.quicksand(
+          fontSize: 17,
+          fontWeight: FontWeight.w700,
+          color: AuthPalette.textDark,
+        ),
       ),
     );
   }
@@ -457,12 +579,18 @@ class _InfoDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Divider(color: AuthPalette.lavenderMist.withValues(alpha: 0.4), height: 1);
+    return Divider(
+      color: AuthPalette.lavenderMist.withValues(alpha: 0.4),
+      height: 1,
+    );
   }
 }
 
 class _SleepHeaderCard extends StatelessWidget {
-  const _SleepHeaderCard({required this.babyName, required this.totalSleepLabel});
+  const _SleepHeaderCard({
+    required this.babyName,
+    required this.totalSleepLabel,
+  });
 
   final String babyName;
   final String totalSleepLabel;
@@ -481,7 +609,9 @@ class _SleepHeaderCard extends StatelessWidget {
           ],
         ),
         borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: AuthPalette.lavenderMist.withValues(alpha: 0.5)),
+        border: Border.all(
+          color: AuthPalette.lavenderMist.withValues(alpha: 0.5),
+        ),
         boxShadow: [
           BoxShadow(
             color: AuthPalette.softCoral.withValues(alpha: 0.14),
@@ -516,7 +646,11 @@ class _SleepHeaderCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                child: const Icon(Icons.bedtime_rounded, color: AuthPalette.softCoral, size: 30),
+                child: const Icon(
+                  Icons.bedtime_rounded,
+                  color: AuthPalette.softCoral,
+                  size: 30,
+                ),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -534,7 +668,10 @@ class _SleepHeaderCard extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       "$babyName's sleep routine",
-                      style: GoogleFonts.nunito(fontSize: 13.5, color: AuthPalette.textMuted),
+                      style: GoogleFonts.nunito(
+                        fontSize: 13.5,
+                        color: AuthPalette.textMuted,
+                      ),
                     ),
                   ],
                 ),
@@ -550,16 +687,28 @@ class _SleepHeaderCard extends StatelessWidget {
             ),
             child: Row(
               children: [
-                const Icon(Icons.nightlight_round, size: 18, color: AuthPalette.softCoral),
+                const Icon(
+                  Icons.nightlight_round,
+                  size: 18,
+                  color: AuthPalette.softCoral,
+                ),
                 const SizedBox(width: 10),
                 Text(
-                  "Today's total sleep",
-                  style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+                  'Recorded sleep total',
+                  style: GoogleFonts.nunito(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: AuthPalette.textDark,
+                  ),
                 ),
                 const Spacer(),
                 Text(
                   totalSleepLabel,
-                  style: GoogleFonts.quicksand(fontSize: 17, fontWeight: FontWeight.w800, color: AuthPalette.textDark),
+                  style: GoogleFonts.quicksand(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    color: AuthPalette.textDark,
+                  ),
                 ),
               ],
             ),
@@ -571,7 +720,11 @@ class _SleepHeaderCard extends StatelessWidget {
 }
 
 class _NapNightSegmentedControl extends StatelessWidget {
-  const _NapNightSegmentedControl({required this.selected, required this.enabled, required this.onChanged});
+  const _NapNightSegmentedControl({
+    required this.selected,
+    required this.enabled,
+    required this.onChanged,
+  });
 
   final _SleepType selected;
   final bool enabled;
@@ -586,7 +739,9 @@ class _NapNightSegmentedControl extends StatelessWidget {
         decoration: BoxDecoration(
           color: Colors.white.withValues(alpha: 0.85),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: AuthPalette.lavenderMist.withValues(alpha: 0.5)),
+          border: Border.all(
+            color: AuthPalette.lavenderMist.withValues(alpha: 0.5),
+          ),
         ),
         child: Row(
           children: [
@@ -606,7 +761,11 @@ class _NapNightSegmentedControl extends StatelessWidget {
 }
 
 class _SegmentButton extends StatelessWidget {
-  const _SegmentButton({required this.type, required this.selected, required this.onTap});
+  const _SegmentButton({
+    required this.type,
+    required this.selected,
+    required this.onTap,
+  });
 
   final _SleepType type;
   final bool selected;
@@ -634,7 +793,11 @@ class _SegmentButton extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(type.icon, size: 18, color: selected ? Colors.white : AuthPalette.textMuted),
+                  Icon(
+                    type.icon,
+                    size: 18,
+                    color: selected ? Colors.white : AuthPalette.textMuted,
+                  ),
                   const SizedBox(height: 3),
                   Text(
                     type.label,
@@ -723,7 +886,9 @@ class _SleepToggleButton extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
-                        isSleeping ? Icons.wb_sunny_rounded : Icons.nightlight_round,
+                        isSleeping
+                            ? Icons.wb_sunny_rounded
+                            : Icons.nightlight_round,
                         color: Colors.white,
                         size: 22,
                       ),
@@ -770,12 +935,20 @@ class _CurrentSleepCard extends StatelessWidget {
               children: [
                 Text(
                   'Started at',
-                  style: GoogleFonts.nunito(fontSize: 11.5, color: AuthPalette.textMuted, fontWeight: FontWeight.w700),
+                  style: GoogleFonts.nunito(
+                    fontSize: 11.5,
+                    color: AuthPalette.textMuted,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   startedAtLabel,
-                  style: GoogleFonts.quicksand(fontSize: 15, fontWeight: FontWeight.w800, color: AuthPalette.textDark),
+                  style: GoogleFonts.quicksand(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: AuthPalette.textDark,
+                  ),
                 ),
               ],
             ),
@@ -785,12 +958,20 @@ class _CurrentSleepCard extends StatelessWidget {
               children: [
                 Text(
                   'Elapsed',
-                  style: GoogleFonts.nunito(fontSize: 11.5, color: AuthPalette.textMuted, fontWeight: FontWeight.w700),
+                  style: GoogleFonts.nunito(
+                    fontSize: 11.5,
+                    color: AuthPalette.textMuted,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   elapsedLabel,
-                  style: GoogleFonts.quicksand(fontSize: 17, fontWeight: FontWeight.w800, color: AuthPalette.softCoral),
+                  style: GoogleFonts.quicksand(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    color: AuthPalette.softCoral,
+                  ),
                 ),
               ],
             ),
@@ -801,11 +982,18 @@ class _CurrentSleepCard extends StatelessWidget {
               children: [
                 Text(
                   'Type',
-                  style: GoogleFonts.nunito(fontSize: 11.5, color: AuthPalette.textMuted, fontWeight: FontWeight.w700),
+                  style: GoogleFonts.nunito(
+                    fontSize: 11.5,
+                    color: AuthPalette.textMuted,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: type.color.withValues(alpha: 0.32),
                     borderRadius: BorderRadius.circular(20),
@@ -817,7 +1005,11 @@ class _CurrentSleepCard extends StatelessWidget {
                       const SizedBox(width: 4),
                       Text(
                         type.label,
-                        style: GoogleFonts.nunito(fontSize: 11, fontWeight: FontWeight.w800, color: AuthPalette.textDark),
+                        style: GoogleFonts.nunito(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: AuthPalette.textDark,
+                        ),
                       ),
                     ],
                   ),
@@ -854,20 +1046,30 @@ class _SleepTimelineCard extends StatelessWidget {
                   final width = constraints.maxWidth;
                   return Stack(
                     children: [
-                      Container(color: AuthPalette.blushPink.withValues(alpha: 0.25)),
+                      Container(
+                        color: AuthPalette.blushPink.withValues(alpha: 0.25),
+                      ),
                       for (final block in blocks)
                         Positioned(
                           left: width * block.start,
                           width: width * (block.end - block.start),
                           top: 0,
                           bottom: 0,
-                          child: Container(color: block.type.color.withValues(alpha: 0.65)),
+                          child: Container(
+                            color: block.type.color.withValues(alpha: 0.65),
+                          ),
                         ),
                       Positioned(
-                        left: (width * nowFraction).clamp(0, math.max(0.0, width - 2)),
+                        left: (width * nowFraction).clamp(
+                          0,
+                          math.max(0.0, width - 2),
+                        ),
                         top: 0,
                         bottom: 0,
-                        child: Container(width: 2, color: AuthPalette.softCoral),
+                        child: Container(
+                          width: 2,
+                          color: AuthPalette.softCoral,
+                        ),
                       ),
                     ],
                   );
@@ -920,9 +1122,16 @@ class _LegendDot extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
         const SizedBox(width: 6),
-        Text(label, style: GoogleFonts.nunito(fontSize: 12, color: AuthPalette.textMuted)),
+        Text(
+          label,
+          style: GoogleFonts.nunito(fontSize: 12, color: AuthPalette.textMuted),
+        ),
       ],
     );
   }
@@ -942,8 +1151,15 @@ class _SleepHistoryRow extends StatelessWidget {
           Container(
             width: 40,
             height: 40,
-            decoration: BoxDecoration(color: session.type.color.withValues(alpha: 0.3), shape: BoxShape.circle),
-            child: Icon(session.type.icon, size: 18, color: AuthPalette.textDark),
+            decoration: BoxDecoration(
+              color: session.type.color.withValues(alpha: 0.3),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              session.type.icon,
+              size: 18,
+              color: AuthPalette.textDark,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -952,12 +1168,19 @@ class _SleepHistoryRow extends StatelessWidget {
               children: [
                 Text(
                   session.type.label,
-                  style: GoogleFonts.nunito(fontSize: 14, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+                  style: GoogleFonts.nunito(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: AuthPalette.textDark,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   session.timeLabel,
-                  style: GoogleFonts.nunito(fontSize: 12, color: AuthPalette.textMuted),
+                  style: GoogleFonts.nunito(
+                    fontSize: 12,
+                    color: AuthPalette.textMuted,
+                  ),
                 ),
               ],
             ),
@@ -965,7 +1188,11 @@ class _SleepHistoryRow extends StatelessWidget {
           const SizedBox(width: 8),
           Text(
             session.durationLabel,
-            style: GoogleFonts.quicksand(fontSize: 14, fontWeight: FontWeight.w800, color: AuthPalette.textDark),
+            style: GoogleFonts.quicksand(
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              color: AuthPalette.textDark,
+            ),
           ),
         ],
       ),
@@ -980,7 +1207,9 @@ class _WeeklyTrendCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final maxHours = points.map((p) => p.hours).reduce(math.max);
+    final maxHours = points
+        .map((p) => p.hours)
+        .fold<double>(1, (a, b) => math.max(a, b));
 
     return AuthCard(
       child: Column(
@@ -1008,7 +1237,10 @@ class _WeeklyTrendCard extends StatelessWidget {
                               gradient: const LinearGradient(
                                 begin: Alignment.bottomCenter,
                                 end: Alignment.topCenter,
-                                colors: [AuthPalette.lavenderMist, AuthPalette.powderBlue],
+                                colors: [
+                                  AuthPalette.lavenderMist,
+                                  AuthPalette.powderBlue,
+                                ],
                               ),
                             ),
                           ),
@@ -1029,7 +1261,10 @@ class _WeeklyTrendCard extends StatelessWidget {
                   child: Text(
                     points[i].label,
                     textAlign: TextAlign.center,
-                    style: GoogleFonts.nunito(fontSize: 10.5, color: AuthPalette.textMuted),
+                    style: GoogleFonts.nunito(
+                      fontSize: 10.5,
+                      color: AuthPalette.textMuted,
+                    ),
                   ),
                 ),
               ],
@@ -1065,19 +1300,30 @@ class _InsightRow extends StatelessWidget {
           Container(
             width: 38,
             height: 38,
-            decoration: BoxDecoration(color: color.withValues(alpha: 0.3), shape: BoxShape.circle),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.3),
+              shape: BoxShape.circle,
+            ),
             child: Icon(icon, size: 18, color: AuthPalette.textDark),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
               title,
-              style: GoogleFonts.nunito(fontSize: 13.5, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+              style: GoogleFonts.nunito(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w700,
+                color: AuthPalette.textDark,
+              ),
             ),
           ),
           Text(
             detail,
-            style: GoogleFonts.nunito(fontSize: 12.5, fontWeight: FontWeight.w700, color: AuthPalette.textMuted),
+            style: GoogleFonts.nunito(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+              color: AuthPalette.textMuted,
+            ),
           ),
         ],
       ),
@@ -1108,20 +1354,32 @@ class _EmptySleepState extends StatelessWidget {
                     color: AuthPalette.lavenderMist.withValues(alpha: 0.4),
                   ),
                 ),
-                const Icon(Icons.bedtime_rounded, color: AuthPalette.softCoral, size: 38),
+                const Icon(
+                  Icons.bedtime_rounded,
+                  color: AuthPalette.softCoral,
+                  size: 38,
+                ),
               ],
             ),
           ),
           const SizedBox(height: 16),
           Text(
             'No sleep sessions logged yet',
-            style: GoogleFonts.quicksand(fontSize: 16.5, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+            style: GoogleFonts.quicksand(
+              fontSize: 16.5,
+              fontWeight: FontWeight.w700,
+              color: AuthPalette.textDark,
+            ),
           ),
           const SizedBox(height: 6),
           Text(
-            "Start tracking Lily's sleep to see her daily rhythm here.",
+            "Start tracking ${BabyProfileStore.name}'s sleep to see her daily rhythm here.",
             textAlign: TextAlign.center,
-            style: GoogleFonts.nunito(fontSize: 12.5, color: AuthPalette.textMuted, height: 1.4),
+            style: GoogleFonts.nunito(
+              fontSize: 12.5,
+              color: AuthPalette.textMuted,
+              height: 1.4,
+            ),
           ),
           const SizedBox(height: 16),
           AuthPrimaryButton(
