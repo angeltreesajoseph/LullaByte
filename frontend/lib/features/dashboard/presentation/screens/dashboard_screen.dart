@@ -231,11 +231,19 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                                 parentName: _parentName,
                                 babyName: _babyName,
                                 babyAge: _babyAgeLabel,
+                                babies: _babies,
+                                activeBabyId: BabyProfileStore.id,
+                                onBabySelected: (baby) {
+                                  final birthDate = DateTime.tryParse(baby['birth_date'] as String? ?? '');
+                                  setState(() {
+                                    BabyProfileStore.select(baby);
+                                    _babyName = BabyProfileStore.name;
+                                    _babyAgeLabel = birthDate == null ? 'Age unavailable' : _formatAge(birthDate);
+                                  });
+                                },
                                 greeting: _greeting,
                                 unreadCount: _unreadNotifications,
                                 onBellTap: () => context.go(RoutePaths.notifications),
-                                onBabyTap: _chooseBaby,
-                                canSwitchBaby: _babies.length > 1,
                               ),
                               const SizedBox(height: 18),
                               FadeTransition(
@@ -419,26 +427,31 @@ class _DashboardHeader extends StatelessWidget {
     required this.parentName,
     required this.babyName,
     required this.babyAge,
+    required this.babies,
+    required this.activeBabyId,
+    required this.onBabySelected,
     required this.greeting,
     required this.unreadCount,
     required this.onBellTap,
-    required this.onBabyTap,
-    required this.canSwitchBaby,
   });
 
   final String parentName;
   final String babyName;
   final String babyAge;
+  final List<Map<String, dynamic>> babies;
+  final String? activeBabyId;
+  final ValueChanged<Map<String, dynamic>> onBabySelected;
   final String greeting;
   final int unreadCount;
   final VoidCallback onBellTap;
-  final VoidCallback onBabyTap;
-  final bool canSwitchBaby;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        Row(
+          children: [
         Container(
           width: 50,
           height: 50,
@@ -476,17 +489,73 @@ class _DashboardHeader extends StatelessWidget {
               ),
               const SizedBox(height: 2),
               InkWell(
-                onTap: canSwitchBaby ? onBabyTap : null,
+                onTap: null,
                 child: Row(mainAxisSize: MainAxisSize.min, children: [
                   Text('$babyName • $babyAge', style: GoogleFonts.nunito(fontSize: 13.5, color: AuthPalette.textMuted)),
-                  if (canSwitchBaby) const Icon(Icons.expand_more_rounded, size: 18),
+                  const SizedBox.shrink(),
                 ]),
               ),
             ],
           ),
         ),
-        _NotificationBell(unreadCount: unreadCount, onTap: onBellTap),
+            _NotificationBell(unreadCount: unreadCount, onTap: onBellTap),
+          ],
+        ),
+        if (babies.length > 1) ...[
+          const SizedBox(height: 14),
+          Row(
+            children: babies.take(2).map((baby) {
+              final id = baby['id'] as String?;
+              final selected = id != null && id == activeBabyId;
+              final name = (baby['name'] as String?)?.trim().isNotEmpty == true
+                  ? (baby['name'] as String).trim()
+                  : 'Your baby';
+              return Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(right: identical(baby, babies.take(2).last) ? 0 : 8),
+                  child: _BabyProfileChip(
+                    name: name,
+                    selected: selected,
+                    onTap: () => onBabySelected(baby),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
       ],
+    );
+  }
+}
+
+class _BabyProfileChip extends StatelessWidget {
+  const _BabyProfileChip({required this.name, required this.selected, required this.onTap});
+  final String name;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? AuthPalette.softCoral : Colors.white.withValues(alpha: 0.78),
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+          child: Row(children: [
+            CircleAvatar(
+              radius: 17,
+              backgroundColor: selected ? Colors.white.withValues(alpha: 0.9) : AuthPalette.lavenderMist,
+              child: Icon(Icons.child_care_rounded, size: 20, color: selected ? AuthPalette.softCoral : AuthPalette.textDark),
+            ),
+            const SizedBox(width: 9),
+            Expanded(child: Text(name, overflow: TextOverflow.ellipsis, style: GoogleFonts.nunito(fontWeight: FontWeight.w800, color: selected ? Colors.white : AuthPalette.textDark))),
+            if (selected) const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+          ]),
+        ),
+      ),
     );
   }
 }
