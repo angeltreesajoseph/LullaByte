@@ -48,6 +48,7 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
   bool _uploadConsent = false;
   String? _savedAudioPath;
   String? _playbackPath;
+  Map<String, dynamic>? _analysis;
   @override
   String get trackerKind => 'cry';
   @override
@@ -94,7 +95,7 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
         builder: (context) => AlertDialog(
           title: const Text('Save recording online?'),
           content: const Text(
-            'This uploads the audio to your account for the selected baby. It stays in history until deleted. It is not used for model training. Cry analysis is not available yet.',
+            'Internal-testing model: it failed on tired, discomfort and belly-pain test cries. Scores are not probabilities of your baby’s needs. This uploads and saves audio for the selected baby; delete it from history. Exact dataset matches show the saved label, not AI confidence. Audio is not used for training.',
           ),
           actions: [
             TextButton(
@@ -114,36 +115,41 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
     setState(() => _savingAudio = true);
     try {
       final bytes = await File(path).readAsBytes();
-      if (bytes.length > 300000) throw StateError('Recording too large');
-      final entries = [
-        {
+      if (bytes.length > 2000000) throw StateError('Recording exceeds 2 MB');
+      final client = await _cryClient();
+      final response = await client.post(
+        '/babies/$id/cry/analyze',
+        data: {
           'audio_data': base64Encode(bytes),
           'format': _extensionOf(path),
-          'time': DateTime.now().toIso8601String(),
-          'result': 'Analysis unavailable',
-          'confidence': null,
+          'accept_experimental': true,
         },
-        ..._recordings,
-      ];
-      final client = await _cryClient();
-      final response = await client.put(
-        '/babies/$id/trackers/cry',
-        data: entries,
       );
       if (!mounted || BabyProfileStore.id != id) return;
       _savedAudioPath = path;
+      _analysis = Map<String, dynamic>.from(
+        response.data['data']['entry'] as Map,
+      );
       setState(
         () => decodeEntries(
-          (response.data['data'] as List)
+          (response.data['data']['history'] as List)
               .map((e) => Map<String, dynamic>.from(e as Map))
               .toList(),
         ),
       );
-      _showToast('Recording saved. Cry prediction is not available yet.');
+      _showToast('Experimental analysis saved. Not a diagnosis.');
+    } on DioException catch (error) {
+      final detail = error.response?.data;
+      if (mounted)
+        _showToast(
+          detail is Map && detail['detail'] is String
+              ? detail['detail'] as String
+              : 'Could not connect to analyzer. Retry when the backend is ready.',
+        );
     } catch (_) {
       if (mounted)
         _showToast(
-          'Could not save audio. Retry, or use a recording under 300 KB.',
+          'Could not analyze audio. Use a recording under 2 MB and 30 seconds.',
         );
     } finally {
       if (mounted) setState(() => _savingAudio = false);
@@ -201,7 +207,7 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
   String? _audioPath;
   bool _ownsAudioFile = false;
 
-  static const _supportedExtensions = <String>{'wav', 'mp3', 'm4a'};
+  static const _supportedExtensions = <String>{'wav', 'mp3', 'm4a', 'ogg'};
   static const _minimumRecordingDuration = Duration(milliseconds: 700);
 
   @override
@@ -265,7 +271,11 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
     _AnalyzerState.idle => 'Ready to listen',
     _AnalyzerState.recording => 'Listening…',
     _AnalyzerState.analyzing => 'Analyzing audio…',
-    _AnalyzerState.audioReady => 'Audio ready — prediction unavailable',
+    _AnalyzerState.audioReady =>
+      _savingAudio
+          ? 'Analyzing experimental sound match…'
+          : _analysis?['result'] as String? ??
+                'Audio ready for experimental analysis',
     _AnalyzerState.error => 'Audio input error',
     _AnalyzerState.resultReady => 'Result ready',
   };
@@ -318,6 +328,7 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
   }
 
   Future<void> _startRecording() async {
+    _analysis = null;
     if (!trackerReady || BabyProfileStore.id == null) {
       _showToast('Wait for the selected baby’s history to load.');
       return;
@@ -392,6 +403,7 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
   }
 
   Future<void> _handleUpload() async {
+    _analysis = null;
     if (!trackerReady || _savingAudio || BabyProfileStore.id == null) return;
     _recordingBabyId = BabyProfileStore.id;
     if (_state == _AnalyzerState.recording ||
@@ -465,6 +477,7 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
   }
 
   Future<void> _handleDelete() async {
+    _analysis = null;
     await _player.stop();
     _recordingTimer?.cancel();
     await _discardOwnedAudioFile();
@@ -492,7 +505,7 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
       builder: (context) => AlertDialog(
         title: const Text('Cry recordings'),
         content: const Text(
-          'Tap the microphone to start, then tap again to stop. Recording stops automatically after 30 seconds. With your permission, audio is saved online under the selected baby. Play or delete it from Recent History. The current model is not ready for use: no cry reasons, confidence percentages, or reason-specific recommendations are generated.',
+          'Tap the microphone to start, then again to stop (maximum 30 seconds). With consent, audio is analyzed and saved for the selected baby. Exact training-file matches show the stored dataset label. Other audio gets uncalibrated experimental model scores. The model failed on tired, discomfort and belly-pain test cries: these scores cannot establish why your baby is crying. Play, inspect or delete saved entries in history.',
         ),
         actions: [
           TextButton(
@@ -620,7 +633,7 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
                           const SizedBox(height: 10),
                           Text('Recordings for ${BabyProfileStore.name}'),
                           const Text(
-                            'Experimental feature: cry prediction and confidence percentages are not available. Recordings are limited to 30 seconds.',
+                            'Internal testing only. Model scores are unreliable, not probabilities of baby needs. Recordings are limited to 30 seconds.',
                           ),
                           if (_state == _AnalyzerState.audioReady)
                             TextButton(
@@ -632,6 +645,8 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
                               ),
                             ),
                           if (!trackerReady) const LinearProgressIndicator(),
+                          if (_analysis != null)
+                            _ExperimentalCryResult(entry: _analysis!),
                           if (trackerReady && _recordings.isEmpty)
                             const Text('No saved recordings yet.'),
                           for (final entry in _recordings)
@@ -640,7 +655,36 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
                                 entry['result'] as String? ??
                                     'Analysis unavailable',
                               ),
-                              subtitle: Text(entry['time'] as String? ?? ''),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(entry['time'] as String? ?? ''),
+                                  if (entry['mode'] != null)
+                                    TextButton(
+                                      onPressed: () => showDialog<void>(
+                                        context: context,
+                                        builder: (context) => AlertDialog(
+                                          title: const Text('Saved analysis'),
+                                          content: SingleChildScrollView(
+                                            child: _ExperimentalCryResult(
+                                              entry: entry,
+                                            ),
+                                          ),
+                                          actions: [
+                                            TextButton(
+                                              onPressed: () =>
+                                                  Navigator.pop(context),
+                                              child: const Text('Close'),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      child: const Text(
+                                        'View experimental scores',
+                                      ),
+                                    ),
+                                ],
+                              ),
                               leading: IconButton(
                                 icon: const Icon(Icons.play_arrow),
                                 onPressed: () => _playSaved(entry),
@@ -1588,6 +1632,66 @@ class _RecommendedActionTileState extends State<_RecommendedActionTile> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _ExperimentalCryResult extends StatelessWidget {
+  const _ExperimentalCryResult({required this.entry});
+  final Map<String, dynamic> entry;
+  @override
+  Widget build(BuildContext context) {
+    final scores = entry['scores'] as Map?;
+    final alternatives = entry['alternatives'] as List? ?? [];
+    return AuthCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            entry['result'] as String? ?? 'Analysis unavailable',
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          Text(entry['explanation'] as String? ?? ''),
+          if (scores != null) ...[
+            const SizedBox(height: 10),
+            const Text('Experimental model scores — NOT medical confidence'),
+            for (final score in scores.entries)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${score.key.toString().replaceAll('_', ' ')}: ${score.value}%',
+                    ),
+                    LinearProgressIndicator(
+                      value: ((score.value as num).toDouble() / 100).clamp(
+                        0,
+                        1,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+          const SizedBox(height: 10),
+          Text(entry['tip'] as String? ?? ''),
+          for (final alternative in alternatives.skip(1)) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Other pattern: ${alternative['label'].toString().replaceAll('_', ' ')} (${alternative['score']}%)',
+            ),
+            Text(alternative['tip'] as String? ?? ''),
+          ],
+          const SizedBox(height: 12),
+          Text(
+            entry['warning'] as String? ?? '',
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          const Text('General comfort guidance: NHS — Soothing a crying baby'),
+        ],
       ),
     );
   }

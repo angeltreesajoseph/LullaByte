@@ -72,6 +72,31 @@ def test_protected_routes_require_bearer_credentials() -> None:
     assert response.headers["WWW-Authenticate"] == "Bearer"
 
 
+def test_experimental_analysis_and_history_integrity(api_client: TestClient, monkeypatch) -> None:
+    from app.services import cry_inference
+    monkeypatch.setattr(cry_inference, 'analyze', lambda data: {
+        'mode': 'model', 'label': 'hungry', 'result': 'Experimental sound-pattern match: hungry',
+        'scores': {'hungry': 60, 'tired': 40}, 'confidence': None, 'warning': 'Experimental only',
+    })
+    baby = api_client.post('/api/v1/babies', json={'name': 'Chris'}).json()['data']
+    endpoint = f"/api/v1/babies/{baby['id']}/cry/analyze"
+    payload = {'audio_data': 'YQ==', 'format': 'wav', 'accept_experimental': True}
+    assert api_client.post(endpoint, json={**payload, 'accept_experimental': False}).status_code == 400
+    assert api_client.post(endpoint, json={**payload, 'audio_data': 'invalid!'}).status_code == 422
+    assert api_client.post(f'/api/v1/babies/{uuid4()}/cry/analyze', json=payload).status_code == 404
+    saved = api_client.post(endpoint, json=payload)
+    assert saved.status_code == 200
+    entry = saved.json()['data']['entry']
+    assert entry['scores']['hungry'] == 60
+    loaded = api_client.get(f"/api/v1/babies/{baby['id']}").json()['data']['tracker_data']['cry']
+    assert loaded[0]['mode'] == 'model'
+    changed = [{**entry, 'scores': {'hungry': 100}, 'label': 'tired'}]
+    result = api_client.put(f"/api/v1/babies/{baby['id']}/trackers/cry", json=changed)
+    assert result.json()['data'][0]['scores']['hungry'] == 60
+    assert result.json()['data'][0]['label'] == 'hungry'
+    assert api_client.put(f"/api/v1/babies/{baby['id']}/trackers/cry", json=[]).status_code == 200
+
+
 def test_cry_history_stores_audio_without_fabricated_prediction(api_client: TestClient) -> None:
     baby = api_client.post('/api/v1/babies', json={'name': 'Alex'}).json()['data']
     endpoint = f"/api/v1/babies/{baby['id']}/trackers/cry"

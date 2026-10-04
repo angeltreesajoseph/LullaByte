@@ -4,6 +4,12 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
+from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
+from datetime import datetime, timezone
+import base64
+import binascii
+import hashlib
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +20,57 @@ from app.schemas.baby import BabyCreate, BabyResponse, BabyUpdate
 from app.schemas.common import SuccessResponse
 
 router = APIRouter(prefix="/api/v1/babies", tags=["babies"])
+
+
+class CryAnalysisRequest(BaseModel):
+    audio_data: str = Field(min_length=1, max_length=2800000)
+    format: str
+    accept_experimental: bool = False
+
+
+@router.post('/{baby_id}/cry/analyze', response_model=SuccessResponse)
+async def analyze_cry(
+    baby_id: UUID,
+    payload: CryAnalysisRequest,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> SuccessResponse:
+    await _owned_baby(baby_id, user, session)
+    if not payload.accept_experimental:
+        raise HTTPException(status_code=400, detail='Experimental analysis consent is required.')
+    if payload.format not in {'wav', 'mp3', 'm4a', 'ogg'}:
+        raise HTTPException(status_code=422, detail='Unsupported audio format.')
+    try:
+        audio = base64.b64decode(payload.audio_data, validate=True)
+        if not audio or len(audio) > 2000000:
+            raise ValueError('Recording must be non-empty and under 2 MB.')
+    except (ValueError, binascii.Error):
+        raise HTTPException(status_code=422, detail='Invalid or oversized audio.')
+    from app.services.cry_inference import analyze
+    try:
+        analysis = await run_in_threadpool(analyze, audio)
+    except BlockingIOError:
+        raise HTTPException(status_code=429, detail='Analyzer busy. Retry shortly.')
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error))
+    except Exception:
+        raise HTTPException(status_code=503, detail='Experimental model unavailable. Check server setup.')
+    result = await session.execute(select(Baby).where(
+        Baby.id == baby_id, Baby.owner_user_id == user.id
+    ).with_for_update().execution_options(populate_existing=True))
+    baby = result.scalar_one_or_none()
+    if baby is None:
+        raise _not_found()
+    history = list((baby.tracker_data or {}).get('cry', []))
+    if len(history) >= 20 or sum(len(item.get('audio_data', '')) for item in history) + len(payload.audio_data) > 11000000:
+        raise HTTPException(status_code=422, detail='History is full. Delete older recordings first.')
+    entry = {'audio_data': payload.audio_data, 'format': payload.format,
+             'time': datetime.now(timezone.utc).isoformat(),
+             'audio_sha256': hashlib.sha256(audio).hexdigest(), **analysis}
+    history.insert(0, entry)
+    baby.tracker_data = {**(baby.tracker_data or {}), 'cry': history}
+    await session.commit()
+    return SuccessResponse(data={'entry': entry, 'history': history})
 
 
 def _not_found() -> HTTPException:
@@ -98,16 +155,18 @@ async def save_tracker(
         import binascii
         if len(entries) > 20:
             raise HTTPException(status_code=422, detail='Maximum 20 recordings per baby.')
+        if sum(len(item.get('audio_data', '')) for item in entries if isinstance(item.get('audio_data'), str)) > 11000000:
+            raise HTTPException(status_code=422, detail='History storage limit reached. Delete older recordings.')
         for entry in entries:
             audio = entry.get('audio_data')
-            if not isinstance(audio, str) or len(audio) > 400000:
+            if not isinstance(audio, str) or len(audio) > 2800000:
                 raise HTTPException(status_code=422, detail='Audio exceeds recording size limit.')
             try:
                 if not base64.b64decode(audio, validate=True):
                     raise ValueError('Empty audio')
             except (ValueError, binascii.Error):
                 raise HTTPException(status_code=422, detail='Invalid audio data.')
-            if entry.get('format') not in {'wav', 'mp3', 'm4a'}:
+            if entry.get('format') not in {'wav', 'mp3', 'm4a', 'ogg'}:
                 raise HTTPException(status_code=422, detail='Unsupported audio format.')
             # No validated inference model is deployed. Never accept client predictions.
             entry['result'] = 'Analysis unavailable'
@@ -118,6 +177,14 @@ async def save_tracker(
     baby = result.scalar_one_or_none()
     if baby is None:
         raise _not_found()
+    if kind == 'cry':
+        # Preserve server-generated analysis on playback/deletion updates.
+        previous = {(item.get('audio_data'), item.get('time')): item
+                    for item in (baby.tracker_data or {}).get('cry', [])}
+        entries = [previous.get((item.get('audio_data'), item.get('time')), {
+            'audio_data': item['audio_data'], 'format': item['format'],
+            'time': item.get('time'), 'result': 'Analysis unavailable', 'confidence': None,
+        }) for item in entries]
     baby.tracker_data = {**(baby.tracker_data or {}), kind: entries}
     await session.commit()
     return SuccessResponse(data=entries)
