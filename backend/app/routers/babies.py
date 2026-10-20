@@ -148,7 +148,7 @@ async def save_tracker(
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> SuccessResponse:
-    if kind not in {'feeding', 'sleep', 'diaper', 'growth', 'milestones', 'memories', 'cry'}:
+    if kind not in {'feeding', 'sleep', 'diaper', 'growth', 'milestones', 'memories', 'cry', 'vaccinations'}:
         raise HTTPException(status_code=400, detail='Unknown tracker.')
     if kind == 'cry':
         import base64
@@ -177,6 +177,20 @@ async def save_tracker(
     baby = result.scalar_one_or_none()
     if baby is None:
         raise _not_found()
+    if kind == 'vaccinations':
+        from app.schemas.vaccination import VaccinationRecord
+        from pydantic import ValidationError
+        if len(entries) > 200:
+            raise HTTPException(status_code=422, detail='Maximum 200 vaccination entries.')
+        try:
+            parsed = [VaccinationRecord.model_validate(entry) for entry in entries]
+        except ValidationError:
+            raise HTTPException(status_code=422, detail='Invalid vaccination entry or received date.')
+        if len({entry.id for entry in parsed}) != len(parsed):
+            raise HTTPException(status_code=422, detail='Duplicate vaccination identifiers.')
+        if baby.birth_date and any(entry.received_date and entry.received_date.date() < baby.birth_date for entry in parsed):
+            raise HTTPException(status_code=422, detail='Received date cannot be before birth.')
+        entries = [entry.model_dump(mode='json') for entry in parsed]
     if kind == 'cry':
         # Preserve server-generated analysis on playback/deletion updates.
         previous = {(item.get('audio_data'), item.get('time')): item

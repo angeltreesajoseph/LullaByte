@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -11,6 +12,7 @@ import '../../../../core/config/app_config.dart';
 import '../../../baby_management/data/baby_api.dart';
 import '../../../baby_management/application/baby_profile_store.dart';
 import '../../../baby_management/presentation/widgets/baby_avatar.dart';
+import '../../../vaccination/application/vaccination_reminders.dart';
 import '../../../authentication/presentation/widgets/auth_background.dart';
 import '../../../authentication/presentation/widgets/auth_palette.dart';
 
@@ -99,6 +101,11 @@ class _DashboardScreenState extends State<DashboardScreen>
       setState(() => _babies = babies);
       BabyProfileStore.babies = babies;
       BabyProfileStore.select(baby);
+      unawaited(
+        VaccinationReminders.restore(user.uid, babies).catchError((Object _) {
+          // Vaccination screen offers reminder status/retry without blocking Home.
+        }),
+      );
     } catch (_) {
       // Keep the calm dashboard available if the API is temporarily offline.
     }

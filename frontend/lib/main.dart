@@ -42,11 +42,22 @@ Future<void> main() async {
   // yet — that is Notification System feature work (SRS Section 10.17).
   try {
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const initSettings = InitializationSettings(android: androidInit);
+    const initSettings = InitializationSettings(
+      android: androidInit,
+      iOS: DarwinInitializationSettings(
+        requestAlertPermission: false,
+        requestBadgePermission: false,
+        requestSoundPermission: false,
+      ),
+    );
     await FlutterLocalNotificationsPlugin().initialize(settings: initSettings);
     bootstrapLogger.info('Local notifications plugin initialized.');
   } catch (error, stackTrace) {
-    bootstrapLogger.warning('Local notifications initialization failed.', error, stackTrace);
+    bootstrapLogger.warning(
+      'Local notifications initialization failed.',
+      error,
+      stackTrace,
+    );
   }
 
   final sharedPreferences = await SharedPreferences.getInstance();

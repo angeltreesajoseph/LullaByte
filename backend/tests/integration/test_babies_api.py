@@ -72,6 +72,29 @@ def test_protected_routes_require_bearer_credentials() -> None:
     assert response.headers["WWW-Authenticate"] == "Bearer"
 
 
+def test_vaccinations_are_separate_validated_and_editable(api_client: TestClient) -> None:
+    one = api_client.post('/api/v1/babies', json={'name': 'Twin one', 'birth_date': '2024-01-01'}).json()['data']
+    two = api_client.post('/api/v1/babies', json={'name': 'Twin two', 'birth_date': '2024-01-01'}).json()['data']
+    endpoint = f"/api/v1/babies/{one['id']}/trackers/vaccinations"
+    record = {'id': 'bcg', 'name': 'BCG', 'due_date': '2024-01-01T00:00:00',
+              'done': True, 'received_date': '2024-01-02T00:00:00',
+              'reminder_at': '2027-01-01T09:00:00+05:30'}
+    response = api_client.put(endpoint, json=[record])
+    assert response.status_code == 200
+    assert response.json()['data'][0]['reminder_at'] is None
+    reloaded = api_client.get(f"/api/v1/babies/{one['id']}").json()['data']
+    assert reloaded['tracker_data']['vaccinations'][0]['done'] is True
+    assert api_client.get(f"/api/v1/babies/{two['id']}").json()['data']['tracker_data'] is None
+    assert api_client.put(endpoint, json=[{**record, 'received_date': None}]).status_code == 422
+    assert api_client.put(endpoint, json=[{**record, 'received_date': '2023-12-01T00:00:00'}]).status_code == 422
+    assert api_client.put(endpoint, json=[{**record, 'received_date': '2099-12-01T00:00:00'}]).status_code == 422
+    assert api_client.put(endpoint, json=[record, record]).status_code == 422
+    undone = api_client.put(endpoint, json=[{**record, 'done': False}])
+    assert undone.status_code == 200 and undone.json()['data'][0]['received_date'] is None
+    assert api_client.put(endpoint, json=[]).status_code == 200
+    assert api_client.put(f'/api/v1/babies/{uuid4()}/trackers/vaccinations', json=[]).status_code == 404
+
+
 def test_experimental_analysis_and_history_integrity(api_client: TestClient, monkeypatch) -> None:
     from app.services import cry_inference
     monkeypatch.setattr(cry_inference, 'analyze', lambda data: {
