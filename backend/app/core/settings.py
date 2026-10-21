@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     database_echo: bool = False
     firebase_service_account_json: str | None = None
     firebase_project_id: str | None = None
+    public_api_origin: str = 'https://lullabyte-api.onrender.com'
+    sharing_push_enabled: bool = True
     cors_allowed_origins: list[str] = Field(
         default_factory=lambda: ["http://localhost", "http://127.0.0.1"]
     )

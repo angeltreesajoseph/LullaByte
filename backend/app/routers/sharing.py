@@ -11,8 +11,11 @@ from app.auth.dependencies import get_current_user, get_verified_identity
 from app.database.session import get_db_session
 from app.models import Baby, BabyShare, User
 from app.schemas.common import SuccessResponse
+from app.core.settings import get_settings
+from fastapi.responses import HTMLResponse
 
 router = APIRouter(prefix='/api/v1/sharing', tags=['sharing'])
+public_router = APIRouter()
 Current = Annotated[User, Depends(get_current_user)]
 Session = Annotated[AsyncSession, Depends(get_db_session)]
 
@@ -34,7 +37,20 @@ def record(share, baby):
     return dict(id=str(share.id), baby_id=str(baby.id), baby_name=baby.name,
                 email=share.email, role=share.role,
                 status='accepted' if share.user_id else 'pending',
-                expires_at=share.expires_at.isoformat())
+                expires_at=share.expires_at.isoformat(),
+                invitation_url=f'{get_settings().public_api_origin.rstrip("/")}/join/{share.id}')
+
+@public_router.get('/join/{share_id}', response_class=HTMLResponse)
+async def invitation_landing(share_id: UUID):
+    # Public page deliberately contains no baby, member or permission details.
+    return HTMLResponse(f'''<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>LullaByte invitation</title></head>
+    <body style="background:#fff5f8;font-family:system-ui;padding:32px;max-width:500px;margin:auto"><h1>You're invited to share care</h1>
+    <p>Open LullaByte and sign in with the email the parent invited. Verify your email before accepting.</p>
+    <p><a href="lullabyte://app/join?invitation={share_id}">Open invitation in LullaByte</a></p>
+    <p>If the app does not open, install LullaByte, then paste this invitation link in Profile → Family Sharing.</p>
+    <p>This invitation does not grant access until the intended account accepts it.</p></body></html>''',
+    headers={'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer',
+             'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'"})
 
 @router.get('')
 async def overview(user: Current, session: Session,
@@ -65,7 +81,7 @@ async def invite(baby_id: UUID, payload: Invite, user: Current, session: Session
     await session.commit()
     return SuccessResponse(data=record(share, baby))
 
-@router.post('/{share_id}/accept')
+@router.post('/{share_id:uuid}/accept')
 async def accept(share_id: UUID, user: Current, session: Session,
                  identity: Annotated[object, Depends(get_verified_identity)]):
     from app.auth.firebase import VerifiedIdentity
@@ -90,7 +106,7 @@ async def accept(share_id: UUID, user: Current, session: Session,
     await session.commit()
     return SuccessResponse(data={'accepted': True})
 
-@router.patch('/{share_id}')
+@router.patch('/{share_id:uuid}')
 async def permission(share_id: UUID, payload: Role, user: Current, session: Session):
     share = (await session.execute(select(BabyShare).where(BabyShare.id == share_id))).scalar_one_or_none()
     if share is None:
@@ -100,7 +116,7 @@ async def permission(share_id: UUID, payload: Role, user: Current, session: Sess
     await session.commit()
     return SuccessResponse(data={'updated': True})
 
-@router.delete('/{share_id}')
+@router.delete('/{share_id:uuid}')
 async def remove(share_id: UUID, user: Current, session: Session,
                  identity: Annotated[object, Depends(get_verified_identity)]):
     from app.auth.firebase import VerifiedIdentity

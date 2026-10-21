@@ -1,17 +1,38 @@
-# Family Sharing
+# Shared care
 
-Real per-baby, in-app invitations replace the former sample screen. No email/SMS invitation delivery, live sync or family push alerts are implemented or claimed.
+## Parent workflow
 
-- Owner selects exactly one baby and recipient account email. Twins are separate grants.
-- Recipient signs in, opens Profile > Family Sharing, verifies the invited email using Firebase, refreshes and accepts. Pending invitations expire in seven days; cancel and recreate to renew.
-- View only can read the baby's records, photos, audio and export reports. Caregiver additionally can add/edit/delete tracker records. Only the owner can edit baby identity/profile or invite/change/revoke members.
-- Members can decline or leave. Owners can cancel pending invites, change roles and revoke.
-- Accepted babies appear in the existing baby list and dashboard selector. Refresh screens to load updates; this is not realtime collaboration. Existing tracker saves replace a whole tracker list, so avoid simultaneously editing the same tracker from multiple devices.
-- Every server read/write checks accepted grants. Revocation blocks subsequent server access; it cannot erase screenshots, exports, already downloaded or currently cached data. A backend authorization error must not be treated as successful saving.
-- Unverified accounts cannot view incoming invitation details or accept invitations. No invitation tokens are exposed.
+Profile → Family Sharing → select one baby → enter the recipient account email → choose **Manage care** or **View only** → Create invitation → Copy invitation link. Send the link yourself in your preferred messaging app. No automatic email or SMS invitation delivery is claimed. For twins, create an invitation for each baby you want to share.
 
-## Deployment
+The link opens a generic HTTPS landing page, then the installed Android app via `lullabyte://app/join?invitation=<uuid>`. If unavailable, paste the link in Family Sharing. Sign-in/registration preserves the pending invitation within the app process. The intended verified-email account must explicitly accept. Forwarding the link to another account does not grant access. Links expire in seven days; cancel and recreate to renew.
 
-Deploy backend code, then from `backend` with the intended database configured run `python -m alembic upgrade head` (adds revision `0004_baby_sharing`). Deploy/restart backend and rebuild Flutter. Do not run a production migration without checking the database target and backup policy.
+- Owner: baby details, invitations, roles, access removal, care records, chat and reports.
+- Manage care: add/edit/delete tracker records and send chat. Cannot change baby identity, ownership or sharing.
+- View only: read baby records, photos, audio, reports, activity and chat; cannot change records or send messages.
+- Members can decline or leave; owners can cancel, change roles or revoke. Access checks run on every server request, including activity/chat. Sharing includes previous records, not only future activity.
 
-Test with two separate Firebase accounts/devices: owner creates invitation; recipient verifies email/accepts; shared baby appears; viewer write is denied; caregiver tracker save is visible after owner refresh; other twin stays private; revoke and verify a subsequent read/write fails. Also test expiration, decline and leave. No production deployment/migration is performed by these local code changes.
+## Activity and chat
+
+Activity & Chat opens a per-baby, server-persisted stream. New tracker saves generate a server-timestamped activity with the authenticated actor's display name. Unchanged saves do not create duplicate activity. Existing pre-deployment records remain in trackers; they are not retrospectively attributed to a caregiver.
+
+Activity/chat refresh every five seconds while open. Home/Overview/Profile check status every ten seconds while foregrounded and fetch a new snapshot only when changed. This is foreground polling, not continuous sensor monitoring or guaranteed instant realtime. Tracker forms are excluded from background refresh so drafts are not replaced.
+
+The latest 100 activity items are displayed. Care records remain available in their dedicated histories. Chat is text-only (2,000 characters), server-persisted, limited to 20 sends/minute, and uses a client UUID to make retries idempotent. Sender/owner can remove a chat message; already read or exported copies cannot be recalled. Chat is not an emergency or medical response service.
+
+Whole-tracker saves carry an `X-Care-Revision` learned from a server read. A stale revision is rejected with 409. Once a baby has an accepted sharing grant, old clients without revision support must update. Refresh before retrying a stale save; do not claim success on conflicts. Versions are cleared at sign-out. All participants need the latest app.
+
+## Notifications
+
+Enable notifications explicitly in Family Sharing on each recipient phone. FCM tokens are bound to the authenticated account and unregistered/invalidated on disable/logout. Android receives a generic notification without baby names, cry predictions or chat text. Care updates notify the parent (not the author); chat notifies other accepted members. The foreground app also shows local notifications. Opening a notification launches the app; open Family Sharing to view activity/chat.
+
+An SQL delivery queue is committed with each activity. The app server's background worker checks every 15 seconds, rechecks recipient access, removes invalid device tokens, and retries failures up to five times with at least a minute between tries. New registrations do not replay old events. Delivery is best-effort and may be delayed or prevented by Firebase permissions, network, OS restrictions, force-stop or Render sleeping. It must not be used for emergency monitoring. At-least-once retries can occur; Android notifications use the event ID as their tag.
+
+Server uses existing Firebase Admin credentials plus the Cloud Messaging API. `LULLABYTE_SHARING_PUSH_ENABLED` defaults to true; set false to disable the worker. `LULLABYTE_PUBLIC_API_ORIGIN` defaults to the existing Render hostname. No third-party email service or Firestore rules are needed. Documentation: [Firebase Flutter setup](https://firebase.google.com/docs/cloud-messaging/flutter/get-started), [message reception](https://firebase.google.com/docs/cloud-messaging/flutter/receive-messages), [Admin sending](https://firebase.google.com/docs/cloud-messaging/send/admin-sdk).
+
+## Deployment and validation
+
+Apply `python -m alembic upgrade head` from backend with the verified database target before deploying the new server. Revisions 0004/0005 add sharing and contacts; 0006 adds activity/chat, devices and queued deliveries. These are additive migrations; existing babies and tracker arrays are preserved. Never publish credentials.
+
+Test on two Firebase accounts/devices: invitation + verification, isolated twins, view-only denial, caregiver save visible on parent, stale-save conflict, chat and idempotent retry, parent background notification, decline/leave/revoke and logout-device cleanup. Automated tests use an isolated database and mocked push delivery; they do not establish real two-phone FCM delivery.
+
+Revocation blocks future server access. It cannot erase previously downloaded audio/photos, screenshots, exports or currently cached data. Foreground polling clears a revoked selection after access is checked; offline cached data cannot be remotely recalled. No claim of end-to-end encrypted chat is made.

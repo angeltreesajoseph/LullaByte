@@ -3,7 +3,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, status, Header, Response
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 from datetime import datetime, timezone
@@ -16,7 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import get_current_user
 from app.database.session import get_db_session
 from app.models import Baby, User, BabyShare
-from app.services.baby_access import accessible_baby, access_role
+from app.services.baby_access import accessible_baby, access_role, revisions, tracker_revision
+from app.services.care_activity import add_activity
 from app.schemas.baby import BabyCreate, BabyResponse, BabyUpdate
 from app.schemas.common import SuccessResponse
 
@@ -65,6 +66,7 @@ async def analyze_cry(
              'audio_sha256': hashlib.sha256(audio).hexdigest(), **analysis}
     history.insert(0, entry)
     baby.tracker_data = {**(baby.tracker_data or {}), 'cry': history}
+    await add_activity(session, baby, user, 'cry', 'New cry recording added')
     await session.commit()
     return SuccessResponse(data={'entry': entry, 'history': history})
 
@@ -98,7 +100,8 @@ async def list_babies(
     )
     return SuccessResponse(
         data=[{**BabyResponse.model_validate(baby).model_dump(),
-               'access_role': await access_role(session, baby, user)} for baby in result.scalars().all()]
+               'access_role': await access_role(session, baby, user),
+               'tracker_revisions': revisions(baby)} for baby in result.scalars().all()]
     )
 
 
@@ -122,7 +125,8 @@ async def get_baby(
 ) -> SuccessResponse:
     baby = await accessible_baby(session, baby_id, user)
     return SuccessResponse(data={**BabyResponse.model_validate(baby).model_dump(),
-                                 'access_role': await access_role(session, baby, user)})
+                                 'access_role': await access_role(session, baby, user),
+                                 'tracker_revisions': revisions(baby)})
 
 
 @router.patch("/{baby_id}", response_model=SuccessResponse)
@@ -147,6 +151,8 @@ async def save_tracker(
     entries: Annotated[list[dict], Body(max_length=5000)],
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
+    response: Response,
+    x_care_revision: Annotated[str | None, Header()] = None,
 ) -> SuccessResponse:
     if kind not in {'feeding', 'sleep', 'diaper', 'growth', 'milestones', 'memories', 'cry', 'vaccinations'}:
         raise HTTPException(status_code=400, detail='Unknown tracker.')
@@ -172,6 +178,11 @@ async def save_tracker(
             entry['result'] = 'Analysis unavailable'
             entry['confidence'] = None
     baby = await accessible_baby(session, baby_id, user, write=True, lock=True)
+    current_revision = tracker_revision((baby.tracker_data or {}).get(kind, []))
+    shared = (await session.execute(select(BabyShare.id).where(
+        BabyShare.baby_id == baby_id, BabyShare.user_id.is_not(None)).limit(1))).scalar_one_or_none()
+    if (x_care_revision is not None and x_care_revision != current_revision) or (shared is not None and x_care_revision is None):
+        raise HTTPException(409, 'Records changed on another device. Refresh this tracker before saving. Shared care requires the latest app version.')
     if kind == 'vaccinations':
         from app.schemas.vaccination import VaccinationRecord
         from pydantic import ValidationError
@@ -194,7 +205,12 @@ async def save_tracker(
             'audio_data': item['audio_data'], 'format': item['format'],
             'time': item.get('time'), 'result': 'Analysis unavailable', 'confidence': None,
         }) for item in entries]
+    previous_entries = (baby.tracker_data or {}).get(kind, [])
+    if previous_entries != entries:
+        verb = 'Added' if len(entries) > len(previous_entries) else 'Removed' if len(entries) < len(previous_entries) else 'Updated'
+        await add_activity(session, baby, user, kind, f'{verb} {kind} records')
     baby.tracker_data = {**(baby.tracker_data or {}), kind: entries}
     await session.commit()
+    response.headers['X-Care-Revision'] = tracker_revision(entries)
     return SuccessResponse(data=entries)
 

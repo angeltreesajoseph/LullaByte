@@ -72,7 +72,9 @@ def test_invite_accept_roles_twins_and_revoke(sharing_client):
     state['person'] = 0
     assert c.patch(f'/api/v1/sharing/{sid}', json={'role': 'caregiver'}).status_code == 200
     state['person'] = 1
-    assert c.put(endpoint, json=[{'type': 'bottle', 'amount_ml': 50}]).status_code == 200
+    rev = c.get(f'/api/v1/babies/{one}').json()['data']['tracker_revisions']['feeding']
+    assert c.put(endpoint, json=[{'type': 'bottle', 'amount_ml': 50}], headers={'X-Care-Revision': rev}).status_code == 200
+    assert c.put(endpoint, json=[], headers={'X-Care-Revision': rev}).status_code == 409
     assert c.patch(f'/api/v1/babies/{one}', json={'name': 'Bad'}).status_code == 404
     state['person'] = 0
     assert c.get(f'/api/v1/babies/{one}').json()['data']['tracker_data']['feeding'][0]['amount_ml'] == 50

@@ -2,6 +2,15 @@ from uuid import UUID
 from fastapi import HTTPException
 from sqlalchemy import select
 from app.models import Baby, BabyShare
+import hashlib
+import json
+
+def tracker_revision(entries):
+    return hashlib.sha256(json.dumps(entries, sort_keys=True, separators=(',', ':'), default=str).encode()).hexdigest()
+
+def revisions(baby):
+    return {kind: tracker_revision((baby.tracker_data or {}).get(kind, []))
+            for kind in ('feeding', 'sleep', 'diaper', 'growth', 'cry', 'vaccinations', 'milestones', 'memories')}
 
 async def accessible_baby(session, baby_id: UUID, user, *, write=False, lock=False):
     # Serialize grants/revocations and writes on the same baby row.
