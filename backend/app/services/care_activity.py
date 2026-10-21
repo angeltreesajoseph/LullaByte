@@ -23,6 +23,7 @@ def public_event(event, user, owner):
     return dict(id=event.id, baby_id=str(event.baby_id), actor_name=event.actor_name,
         kind=event.kind, summary=event.summary, message=event.message,
         created_at=event.created_at.isoformat(),
+        mine=event.actor_user_id == user.id,
         can_delete=event.kind == 'chat' and (event.actor_user_id == user.id or owner))
 
 def send_push(tokens, baby_id, activity_id):

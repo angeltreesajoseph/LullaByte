@@ -34,12 +34,14 @@ def test_activity_chat_permissions_and_retry(sharing_client):
     assert c.get(f'/api/v1/sharing/babies/{one}/activity').json()['data']['events'][-1]['message'] is None
     assert c.patch(f'/api/v1/sharing/{sid}', json={'role': 'viewer'}).status_code == 200
     state['person'] = 1
-    assert c.post(url, json={'text': 'Not allowed', 'client_id': str(uuid4())}).status_code == 403
+    assert c.post(url, json={'text': 'Viewer message', 'client_id': str(uuid4())}).status_code == 201
+    assert c.put(endpoint, json=[]).status_code == 403
     assert c.get(f'/api/v1/sharing/babies/{one}/activity').status_code == 200
     state['person'] = 0
     assert c.delete(f'/api/v1/sharing/{sid}').status_code == 200
     state['person'] = 1
     assert c.get(f'/api/v1/sharing/babies/{one}/activity').status_code == 404
+    assert c.post(url, json={'text': 'Revoked message', 'client_id': str(uuid4())}).status_code == 404
 
 def test_invitation_page_has_no_baby_data_and_device_auth(sharing_client):
     c, state = sharing_client

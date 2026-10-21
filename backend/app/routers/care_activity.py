@@ -4,6 +4,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
+from sqlalchemy.orm import load_only
+from app.models import BabyShare
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import get_current_user
 from app.database.session import get_db_session
@@ -24,6 +26,29 @@ class Message(BaseModel):
 class Device(BaseModel):
     token: str = Field(min_length=20, max_length=1024, pattern=r'^[A-Za-z0-9:_.-]+$')
 
+@router.get('/conversations')
+async def conversations(user: Current, session: Session):
+    babies = (await session.execute(select(Baby).options(load_only(
+        Baby.id, Baby.name, Baby.photo_data, Baby.owner_user_id)).where(
+        (Baby.owner_user_id == user.id) | Baby.id.in_(select(BabyShare.baby_id).where(BabyShare.user_id == user.id))
+    ))).scalars().all()
+    ids = [baby.id for baby in babies]
+    if not ids:
+        return SuccessResponse(data=[])
+    latest_ids = select(func.max(CareActivity.id)).where(
+        CareActivity.baby_id.in_(ids), CareActivity.kind == 'chat', CareActivity.message.is_not(None)
+    ).group_by(CareActivity.baby_id)
+    latest = {e.baby_id: e for e in (await session.execute(select(CareActivity).where(CareActivity.id.in_(latest_ids)))).scalars()}
+    counts = dict((await session.execute(select(BabyShare.baby_id, func.count(BabyShare.id)).where(
+        BabyShare.baby_id.in_(ids), BabyShare.user_id.is_not(None)).group_by(BabyShare.baby_id))).all())
+    babies.sort(key=lambda b: (-(latest[b.id].id if b.id in latest else 0), b.name.casefold()))
+    return SuccessResponse(data=[dict(baby_id=str(b.id), baby_name=b.name,
+        photo_data=b.photo_data, role=await access_role(session, b, user),
+        members=1 + counts.get(b.id, 0),
+        last_message=latest[b.id].message if b.id in latest else None,
+        last_sender=latest[b.id].actor_name if b.id in latest else None,
+        last_time=latest[b.id].created_at.isoformat() if b.id in latest else None) for b in babies])
+
 @router.get('/babies/{baby_id}/status')
 async def care_status(baby_id: UUID, user: Current, session: Session):
     baby = await accessible_baby(session, baby_id, user)
@@ -33,9 +58,11 @@ async def care_status(baby_id: UUID, user: Current, session: Session):
 
 @router.get('/babies/{baby_id}/activity')
 async def activity(baby_id: UUID, user: Current, session: Session,
-                   after: int | None = Query(default=None, ge=0)):
+                   after: int | None = Query(default=None, ge=0), chat_only: bool = False):
     baby = await accessible_baby(session, baby_id, user)
     query = select(CareActivity).where(CareActivity.baby_id == baby_id)
+    if chat_only:
+        query = query.where(CareActivity.kind == 'chat')
     if after is not None:
         query = query.where(CareActivity.id > after).order_by(CareActivity.id)
     else:
@@ -43,12 +70,13 @@ async def activity(baby_id: UUID, user: Current, session: Session,
     events = (await session.execute(query.limit(100))).scalars().all()
     if after is None:
         events = list(reversed(events))
-    return SuccessResponse(data={'baby_name': baby.name, 'role': await access_role(session, baby, user),
+    return SuccessResponse(data={'baby_name': baby.name, 'role': await access_role(session, baby, user), 'can_chat': True,
         'events': [public_event(e, user, baby.owner_user_id == user.id) for e in events]})
 
 @router.post('/babies/{baby_id}/messages', status_code=201)
 async def message(baby_id: UUID, payload: Message, user: Current, session: Session):
-    baby = await accessible_baby(session, baby_id, user, write=True, lock=True)
+    # Messaging is separate from permission to modify care records.
+    baby = await accessible_baby(session, baby_id, user, lock=True)
     text = payload.text.strip()
     if not text:
         raise HTTPException(422, 'Enter a message.')

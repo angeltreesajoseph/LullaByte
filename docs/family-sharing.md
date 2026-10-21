@@ -1,5 +1,7 @@
 # Shared care
 
+Home's top-left baby photo opens the selected baby's Profile. The fourth bottom tab is Chat, showing a separate conversation for every owned or accepted shared baby. Family Sharing's Open chat action opens that same conversation, not a separate message store. Chat bubbles show sender and timestamp, with the sender/parent's remove action in the message menu. There is no fake unread count or demo chat data.
+
 ## Parent workflow
 
 Profile → Family Sharing → select one baby → enter the recipient account email → choose **Manage care** or **View only** → Create invitation → Copy invitation link. Send the link yourself in your preferred messaging app. No automatic email or SMS invitation delivery is claimed. For twins, create an invitation for each baby you want to share.
@@ -8,16 +10,16 @@ The link opens a generic HTTPS landing page, then the installed Android app via 
 
 - Owner: baby details, invitations, roles, access removal, care records, chat and reports.
 - Manage care: add/edit/delete tracker records and send chat. Cannot change baby identity, ownership or sharing.
-- View only: read baby records, photos, audio, reports, activity and chat; cannot change records or send messages.
+- View only: read baby records, photos, audio, reports and activity without changing care records. All accepted members, including view-only members, can send chat messages and remove their own messages.
 - Members can decline or leave; owners can cancel, change roles or revoke. Access checks run on every server request, including activity/chat. Sharing includes previous records, not only future activity.
 
 ## Activity and chat
 
 Activity & Chat opens a per-baby, server-persisted stream. New tracker saves generate a server-timestamped activity with the authenticated actor's display name. Unchanged saves do not create duplicate activity. Existing pre-deployment records remain in trackers; they are not retrospectively attributed to a caregiver.
 
-Activity/chat refresh every five seconds while open. Home/Overview/Profile check status every ten seconds while foregrounded and fetch a new snapshot only when changed. This is foreground polling, not continuous sensor monitoring or guaranteed instant realtime. Tracker forms are excluded from background refresh so drafts are not replaced.
+Activity/chat refresh every five seconds while open. The Chat inbox fetches only conversation metadata and pauses its polling while a conversation is open. Home/Overview/Profile check status every ten seconds while foregrounded and fetch a new snapshot only when changed. This is foreground polling, not continuous sensor monitoring or guaranteed instant realtime. Tracker forms are excluded from background refresh so drafts are not replaced.
 
-The latest 100 activity items are displayed. Care records remain available in their dedicated histories. Chat is text-only (2,000 characters), server-persisted, limited to 20 sends/minute, and uses a client UUID to make retries idempotent. Sender/owner can remove a chat message; already read or exported copies cannot be recalled. Chat is not an emergency or medical response service.
+The activity screen displays the latest 100 activity items; direct conversations fetch the latest 100 chat messages independently of care activity. Care records remain available in their dedicated histories. Chat is text-only (2,000 characters), server-persisted, limited to 20 sends/minute, and uses a client UUID to make retries idempotent. Sender/owner can remove a chat message; already read or exported copies cannot be recalled. Chat is not an emergency or medical response service.
 
 Whole-tracker saves carry an `X-Care-Revision` learned from a server read. A stale revision is rejected with 409. Once a baby has an accepted sharing grant, old clients without revision support must update. Refresh before retrying a stale save; do not claim success on conflicts. Versions are cleared at sign-out. All participants need the latest app.
 
