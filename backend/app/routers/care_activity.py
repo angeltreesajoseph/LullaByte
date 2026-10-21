@@ -3,14 +3,14 @@ from typing import Annotated
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update, or_
 from sqlalchemy.orm import load_only
 from app.models import BabyShare
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import get_current_user
 from app.database.session import get_db_session
 from app.models import User, Baby
-from app.models.care_activity import CareActivity, CareDevice
+from app.models.care_activity import CareActivity, CareDevice, CareDelivery
 from app.schemas.common import SuccessResponse
 from app.services.baby_access import accessible_baby, access_role
 from app.services.care_activity import add_activity, public_event
@@ -25,6 +25,63 @@ class Message(BaseModel):
 
 class Device(BaseModel):
     token: str = Field(min_length=20, max_length=1024, pattern=r'^[A-Za-z0-9:_.-]+$')
+
+def alert_conditions(user):
+    return (CareDelivery.user_id == user.id,
+        or_(Baby.owner_user_id == user.id, Baby.id.in_(select(BabyShare.baby_id).where(BabyShare.user_id == user.id))),
+        or_(CareActivity.kind == 'chat', Baby.owner_user_id == user.id,
+            Baby.id.in_(select(BabyShare.baby_id).where(BabyShare.user_id == user.id, BabyShare.role == 'caregiver'))),
+        or_(CareActivity.kind != 'chat', CareActivity.message.is_not(None)))
+
+@router.get('/alerts')
+async def alerts(user: Current, session: Session, before: int | None = Query(default=None, ge=1),
+                 activity_id: int | None = Query(default=None, ge=1)):
+    query = select(CareDelivery, CareActivity, Baby.name).join(
+        CareActivity, CareActivity.id == CareDelivery.activity_id).join(Baby, Baby.id == CareActivity.baby_id).where(*alert_conditions(user))
+    unread = (await session.execute(select(func.count()).select_from(CareDelivery).join(
+        CareActivity, CareActivity.id == CareDelivery.activity_id).join(Baby, Baby.id == CareActivity.baby_id).where(
+        *alert_conditions(user), CareDelivery.read_at.is_(None)))).scalar_one()
+    def public_alert(row):
+        d, e, name = row
+        return dict(id=d.id, activity_id=e.id, baby_id=str(e.baby_id), baby_name=name, actor_name=e.actor_name,
+            kind=e.kind, summary=e.summary, created_at=e.created_at.isoformat(), read=d.read_at is not None)
+    target = None
+    if activity_id is not None:
+        target_row = (await session.execute(query.where(CareActivity.id == activity_id).limit(1))).first()
+        if target_row is not None:
+            target = public_alert(target_row)
+    if before is not None:
+        query = query.where(CareDelivery.id < before)
+    rows = (await session.execute(query.order_by(CareDelivery.id.desc()).limit(51))).all()
+    items = [public_alert(row) for row in rows[:50]]
+    shared_role = select(BabyShare.role).where(BabyShare.baby_id == Baby.id, BabyShare.user_id == user.id).scalar_subquery()
+    accessible = (await session.execute(select(Baby.id, Baby.name, Baby.owner_user_id, shared_role.label('shared_role')).where(
+        (Baby.owner_user_id == user.id) | Baby.id.in_(select(BabyShare.baby_id).where(BabyShare.user_id == user.id))))).all()
+    return SuccessResponse(data={'items': items, 'unread_count': unread,
+        'next_before': items[-1]['id'] if len(rows) > 50 else None, 'target': target,
+        'babies': [dict(id=str(b.id), name=b.name, access_role='owner' if b.owner_user_id == user.id else b.shared_role) for b in accessible]})
+
+class ReadAlerts(BaseModel):
+    through_id: int = Field(ge=1)
+
+@router.post('/alerts/read')
+async def read_alerts(payload: ReadAlerts, user: Current, session: Session):
+    # A snapshot cursor avoids accidentally marking newly arrived alerts read.
+    await session.execute(update(CareDelivery).where(CareDelivery.user_id == user.id,
+        CareDelivery.id <= payload.through_id, CareDelivery.read_at.is_(None)).values(read_at=datetime.now(timezone.utc)))
+    await session.commit()
+    return SuccessResponse(data={'updated': True})
+
+@router.post('/alerts/{alert_id}/read')
+async def read_alert(alert_id: int, user: Current, session: Session):
+    row = (await session.execute(select(CareDelivery).join(CareActivity,
+        CareActivity.id == CareDelivery.activity_id).join(Baby, Baby.id == CareActivity.baby_id).where(
+        CareDelivery.id == alert_id, *alert_conditions(user)))).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(404, 'Alert not found.')
+    row.read_at = row.read_at or datetime.now(timezone.utc)
+    await session.commit()
+    return SuccessResponse(data={'updated': True})
 
 @router.get('/conversations')
 async def conversations(user: Current, session: Session):

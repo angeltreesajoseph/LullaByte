@@ -33,3 +33,4 @@ class CareDelivery(Base):
     sent: Mapped[bool] = mapped_column(Boolean, default=False)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     last_attempt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

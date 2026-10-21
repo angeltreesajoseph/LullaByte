@@ -11,10 +11,12 @@ async def add_activity(session, baby, user, kind, summary, message=None, client_
     session.add(event)
     await session.flush()
     recipients = {baby.owner_user_id}
-    # Care updates alert the parent. Chat messages alert every accepted member.
-    if kind == 'chat':
-        recipients.update((await session.execute(select(BabyShare.user_id).where(
-            BabyShare.baby_id == baby.id, BabyShare.user_id.is_not(None)))).scalars().all())
+    # Care updates alert the parent and managers; chat alerts all accepted members.
+    members = select(BabyShare.user_id).where(
+        BabyShare.baby_id == baby.id, BabyShare.user_id.is_not(None))
+    if kind != 'chat':
+        members = members.where(BabyShare.role == 'caregiver')
+    recipients.update((await session.execute(members)).scalars().all())
     recipients.discard(user.id)
     session.add_all([CareDelivery(activity_id=event.id, user_id=uid) for uid in recipients])
     return event
@@ -46,10 +48,13 @@ async def deliver_pending(session):
     for delivery in rows:
         event = await session.get(CareActivity, delivery.activity_id)
         baby = await session.get(Baby, event.baby_id)
-        grant = (await session.execute(select(BabyShare.id).where(
+        grant = (await session.execute(select(BabyShare.role).where(
             BabyShare.baby_id == event.baby_id, BabyShare.user_id == delivery.user_id))).scalar_one_or_none()
         if baby is None or (baby.owner_user_id != delivery.user_id and grant is None):
             delivery.sent = True  # cancelled after revocation
+            continue
+        if baby.owner_user_id != delivery.user_id and event.kind != 'chat' and grant != 'caregiver':
+            delivery.sent = True  # permission was downgraded while queued
             continue
         tokens = (await session.execute(select(CareDevice.token).where(CareDevice.user_id == delivery.user_id,
             CareDevice.registered_at <= event.created_at))).scalars().all()
