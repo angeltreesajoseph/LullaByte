@@ -10,6 +10,7 @@ from app.middleware.request_context import request_context_middleware
 from app.routers.health import router as health_router
 from app.routers.account import router as account_router
 from app.routers.babies import router as babies_router
+from app.routers.sharing import router as sharing_router
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -43,6 +44,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(health_router)
     application.include_router(account_router)
     application.include_router(babies_router)
+    application.include_router(sharing_router)
     return application
 
 

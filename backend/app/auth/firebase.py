@@ -15,6 +15,7 @@ class VerifiedIdentity:
     firebase_uid: str
     email: str | None
     display_name: str | None
+    email_verified: bool = False
 
 
 class FirebaseTokenVerifier:
@@ -70,5 +71,6 @@ class FirebaseTokenVerifier:
             firebase_uid=uid,
             email=claims.get("email"),
             display_name=claims.get("name") or claims.get("display_name"),
+            email_verified=claims.get("email_verified") is True,
         )
 

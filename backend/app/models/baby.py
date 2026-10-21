@@ -28,6 +28,8 @@ class Baby(TimestampMixin, Base):
     allergies: Mapped[str | None] = mapped_column(String(500))
     pediatrician: Mapped[str | None] = mapped_column(String(160))
     hospital: Mapped[str | None] = mapped_column(String(160))
+    parent_phone: Mapped[str | None] = mapped_column(String(32))
+    pediatrician_phone: Mapped[str | None] = mapped_column(String(32))
     head_circumference_cm: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
 
     owner: Mapped["User"] = relationship(back_populates="babies")

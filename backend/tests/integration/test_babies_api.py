@@ -62,6 +62,18 @@ def test_baby_crud_is_scoped_to_authenticated_owner(api_client: TestClient) -> N
     missing = api_client.get(f"/api/v1/babies/{uuid4()}")
     assert missing.status_code == 404
 
+def test_care_contacts_save_and_remain_separate(api_client: TestClient):
+    one = api_client.post('/api/v1/babies', json={'name': 'One', 'parent_phone': '+91 12345', 'pediatrician_phone': '0481-234567'}).json()['data']
+    two = api_client.post('/api/v1/babies', json={'name': 'Two'}).json()['data']
+    assert one['parent_phone'] == '+91 12345'
+    assert two['parent_phone'] is None
+    endpoint = f"/api/v1/babies/{one['id']}"
+    assert api_client.patch(endpoint, json={'parent_phone': '55555'}).status_code == 200
+    assert api_client.get(endpoint).json()['data']['parent_phone'] == '55555'
+    assert api_client.get(f"/api/v1/babies/{two['id']}").json()['data']['parent_phone'] is None
+    assert api_client.patch(endpoint, json={'parent_phone': 'not a number'}).status_code == 422
+    assert api_client.patch(endpoint, json={'parent_phone': ''}).status_code == 200
+
 
 def test_protected_routes_require_bearer_credentials() -> None:
     application = create_app(Settings(environment="test", log_level="CRITICAL"))

@@ -15,7 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
 from app.database.session import get_db_session
-from app.models import Baby, User
+from app.models import Baby, User, BabyShare
+from app.services.baby_access import accessible_baby, access_role
 from app.schemas.baby import BabyCreate, BabyResponse, BabyUpdate
 from app.schemas.common import SuccessResponse
 
@@ -35,7 +36,7 @@ async def analyze_cry(
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> SuccessResponse:
-    await _owned_baby(baby_id, user, session)
+    await accessible_baby(session, baby_id, user, write=True)
     if not payload.accept_experimental:
         raise HTTPException(status_code=400, detail='Experimental analysis consent is required.')
     if payload.format not in {'wav', 'mp3', 'm4a', 'ogg'}:
@@ -55,12 +56,7 @@ async def analyze_cry(
         raise HTTPException(status_code=422, detail=str(error))
     except Exception:
         raise HTTPException(status_code=503, detail='Experimental model unavailable. Check server setup.')
-    result = await session.execute(select(Baby).where(
-        Baby.id == baby_id, Baby.owner_user_id == user.id
-    ).with_for_update().execution_options(populate_existing=True))
-    baby = result.scalar_one_or_none()
-    if baby is None:
-        raise _not_found()
+    baby = await accessible_baby(session, baby_id, user, write=True, lock=True)
     history = list((baby.tracker_data or {}).get('cry', []))
     if len(history) >= 20 or sum(len(item.get('audio_data', '')) for item in history) + len(payload.audio_data) > 11000000:
         raise HTTPException(status_code=422, detail='History is full. Delete older recordings first.')
@@ -96,10 +92,13 @@ async def list_babies(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> SuccessResponse:
     result = await session.execute(
-        select(Baby).where(Baby.owner_user_id == user.id).order_by(Baby.created_at)
+        select(Baby).where((Baby.owner_user_id == user.id) | Baby.id.in_(
+            select(BabyShare.baby_id).where(BabyShare.user_id == user.id)
+        )).order_by(Baby.created_at)
     )
     return SuccessResponse(
-        data=[BabyResponse.model_validate(baby) for baby in result.scalars().all()]
+        data=[{**BabyResponse.model_validate(baby).model_dump(),
+               'access_role': await access_role(session, baby, user)} for baby in result.scalars().all()]
     )
 
 
@@ -121,8 +120,9 @@ async def get_baby(
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> SuccessResponse:
-    baby = await _owned_baby(baby_id, user, session)
-    return SuccessResponse(data=BabyResponse.model_validate(baby))
+    baby = await accessible_baby(session, baby_id, user)
+    return SuccessResponse(data={**BabyResponse.model_validate(baby).model_dump(),
+                                 'access_role': await access_role(session, baby, user)})
 
 
 @router.patch("/{baby_id}", response_model=SuccessResponse)
@@ -171,12 +171,7 @@ async def save_tracker(
             # No validated inference model is deployed. Never accept client predictions.
             entry['result'] = 'Analysis unavailable'
             entry['confidence'] = None
-    result = await session.execute(select(Baby).where(
-        Baby.id == baby_id, Baby.owner_user_id == user.id
-    ).with_for_update())
-    baby = result.scalar_one_or_none()
-    if baby is None:
-        raise _not_found()
+    baby = await accessible_baby(session, baby_id, user, write=True, lock=True)
     if kind == 'vaccinations':
         from app.schemas.vaccination import VaccinationRecord
         from pydantic import ValidationError

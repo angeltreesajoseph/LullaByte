@@ -8,6 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class BabyCreate(BaseModel):
+    parent_phone: str | None = Field(default=None, max_length=32, pattern=r'^[+0-9() .-]*$')
+    pediatrician_phone: str | None = Field(default=None, max_length=32, pattern=r'^[+0-9() .-]*$')
     photo_data: str | None = Field(default=None, max_length=500000)
     name: str = Field(min_length=1, max_length=120)
     birth_date: date | None = None
@@ -22,6 +24,8 @@ class BabyCreate(BaseModel):
 
 
 class BabyUpdate(BaseModel):
+    parent_phone: str | None = Field(default=None, max_length=32, pattern=r'^[+0-9() .-]*$')
+    pediatrician_phone: str | None = Field(default=None, max_length=32, pattern=r'^[+0-9() .-]*$')
     photo_data: str | None = Field(default=None, max_length=500000)
     name: str | None = Field(default=None, min_length=1, max_length=120)
     birth_date: date | None = None
@@ -36,6 +40,8 @@ class BabyUpdate(BaseModel):
 
 
 class BabyResponse(BaseModel):
+    parent_phone: str | None
+    pediatrician_phone: str | None
     tracker_data: dict | None
     photo_data: str | None
     model_config = ConfigDict(from_attributes=True)
