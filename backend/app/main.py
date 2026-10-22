@@ -13,6 +13,7 @@ from app.routers.babies import router as babies_router
 from app.routers.sharing import router as sharing_router
 from app.routers.sharing import public_router as invitation_router
 from app.routers.care_activity import router as care_activity_router
+from app.routers.assistant import router as assistant_router
 from contextlib import asynccontextmanager
 import asyncio
 from contextlib import suppress
@@ -71,6 +72,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(sharing_router)
     application.include_router(invitation_router)
     application.include_router(care_activity_router)
+    application.include_router(assistant_router)
     return application
 
 

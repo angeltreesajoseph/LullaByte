@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     firebase_project_id: str | None = None
     public_api_origin: str = 'https://lullabyte-api.onrender.com'
     sharing_push_enabled: bool = True
+    gemini_api_key: SecretStr | None = None
+    gemini_model: str = Field(default='gemini-3.5-flash-lite', pattern=r'^[a-zA-Z0-9._-]+$')
     cors_allowed_origins: list[str] = Field(
         default_factory=lambda: ["http://localhost", "http://127.0.0.1"]
     )
