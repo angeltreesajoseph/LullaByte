@@ -2,7 +2,7 @@
 
 from collections.abc import AsyncIterator
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -33,12 +33,17 @@ def create_session_factory(settings: Settings) -> async_sessionmaker[AsyncSessio
     )
 
 
-async def get_db_session() -> AsyncIterator[AsyncSession]:
+async def get_db_session(request: Request) -> AsyncIterator[AsyncSession]:
     """Yield one request-scoped session and roll back failed requests."""
 
-    settings = get_settings()
+    settings = request.app.state.settings
     try:
-        factory = create_session_factory(settings)
+        factory = getattr(request.app.state, 'database_sessions', None)
+        if factory is None:
+            # Construction is synchronous: concurrent requests cannot create
+            # separate pools between this check and assignment.
+            factory = create_session_factory(settings)
+            request.app.state.database_sessions = factory
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail="Database is not configured.") from error
 

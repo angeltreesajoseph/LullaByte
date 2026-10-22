@@ -37,6 +37,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 task.cancel()
                 with suppress(asyncio.CancelledError):
                     await task
+            factory = getattr(app.state, 'database_sessions', None)
+            if factory is not None:
+                await factory.kw['bind'].dispose()
+                app.state.database_sessions = None
 
     application = FastAPI(
         title=runtime_settings.app_name,

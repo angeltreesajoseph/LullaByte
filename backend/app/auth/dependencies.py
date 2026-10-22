@@ -6,6 +6,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from app.auth.firebase import AuthenticationError, FirebaseTokenVerifier
 from app.core.settings import Settings, get_settings
@@ -30,7 +31,7 @@ async def get_verified_identity(
             headers={"WWW-Authenticate": "Bearer"},
         )
     try:
-        return verifier.verify(credentials.credentials)
+        return await run_in_threadpool(verifier.verify, credentials.credentials)
     except AuthenticationError as error:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -61,11 +62,15 @@ async def get_current_user(
             display_name=identity.display_name,
         )
         session.add(user)
+        await session.commit()
+        await session.refresh(user)
     else:
         user.email = identity.email or user.email
         user.display_name = identity.display_name or user.display_name
-    await session.commit()
-    await session.refresh(user)
+        # Normal authenticated reads must not issue an UPDATE/COMMIT/SELECT
+        # cycle just to re-read unchanged identity fields.
+        if session.is_modified(user):
+            await session.commit()
     if not user.is_active:
         raise HTTPException(status_code=403, detail="This account is inactive.")
     return user

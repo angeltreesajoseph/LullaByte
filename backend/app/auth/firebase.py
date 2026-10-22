@@ -2,8 +2,11 @@
 
 from dataclasses import dataclass
 from typing import Any
+from threading import Lock
 
 from app.core.settings import Settings
+
+_initialization_lock = Lock()
 
 
 class AuthenticationError(Exception):
@@ -26,6 +29,11 @@ class FirebaseTokenVerifier:
         self._initialized = False
 
     def _initialize(self) -> None:
+        # Requests verify tokens in worker threads; initialize the shared SDK once.
+        with _initialization_lock:
+            self._initialize_once()
+
+    def _initialize_once(self) -> None:
         if self._initialized:
             return
         try:

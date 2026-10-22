@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 import base64
 import binascii
 import hashlib
-from sqlalchemy import select
+from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
@@ -94,14 +94,15 @@ async def list_babies(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> SuccessResponse:
     result = await session.execute(
-        select(Baby).where((Baby.owner_user_id == user.id) | Baby.id.in_(
-            select(BabyShare.baby_id).where(BabyShare.user_id == user.id)
-        )).order_by(Baby.created_at)
+        select(Baby, BabyShare.role).outerjoin(BabyShare, and_(
+            BabyShare.baby_id == Baby.id, BabyShare.user_id == user.id
+        )).where((Baby.owner_user_id == user.id) | BabyShare.user_id.is_not(None))
+        .order_by(Baby.created_at)
     )
     return SuccessResponse(
         data=[{**BabyResponse.model_validate(baby).model_dump(),
-               'access_role': await access_role(session, baby, user),
-               'tracker_revisions': revisions(baby)} for baby in result.scalars().all()]
+               'access_role': 'owner' if baby.owner_user_id == user.id else role,
+               'tracker_revisions': revisions(baby)} for baby, role in result.all()]
     )
 
 
