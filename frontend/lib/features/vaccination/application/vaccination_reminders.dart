@@ -1,4 +1,7 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'dart:convert';
+import 'dart:typed_data';
+import '../../notifications/data/reminder_inbox.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
@@ -57,7 +60,11 @@ class VaccinationReminders {
         for (final baby in babies) {
           if (_pausedUsers.contains(user)) return;
           final rows =
-              ((baby['tracker_data'] as Map?)?['vaccinations'] as List? ?? [])
+              (baby['access_role'] == 'viewer'
+                      ? <dynamic>[]
+                      : ((baby['tracker_data'] as Map?)?['vaccinations']
+                                as List? ??
+                            []))
                   .map((e) => Map<String, dynamic>.from(e as Map))
                   .toList();
           await _sync(
@@ -75,6 +82,7 @@ class VaccinationReminders {
     String name,
     List<Map<String, dynamic>> entries,
   ) async {
+    await ReminderInbox.sync(user, baby, name, 'vaccinations', entries);
     if (!_ready) {
       tzdata.initializeTimeZones();
       _ready = true;
@@ -102,16 +110,25 @@ class VaccinationReminders {
         title: 'Vaccination reminder',
         body:
             '$name: ${entry['name']}. Confirm timing with your paediatrician.',
-        notificationDetails: const NotificationDetails(
+        notificationDetails: NotificationDetails(
           android: AndroidNotificationDetails(
             'vaccinations',
             'Vaccination reminders',
             channelDescription: 'Reminders you choose for your baby',
             importance: Importance.high,
+            enableVibration: true,
+            vibrationPattern: Int64List.fromList([0, 400, 200, 400]),
           ),
           iOS: DarwinNotificationDetails(),
         ),
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        payload: jsonEncode({
+          'type': 'reminder',
+          'uid': user,
+          'baby_id': baby,
+          'id':
+              'reminder/vaccinations/$baby/${entry['id'] ?? ''}/${date.toUtc().toIso8601String()}',
+        }),
       );
       current.add('$notificationId');
       await prefs.setStringList(key, current);

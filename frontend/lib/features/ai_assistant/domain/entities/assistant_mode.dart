@@ -9,17 +9,17 @@ enum AssistantMode { offline, online }
 
 extension AssistantModeX on AssistantMode {
   String get label => switch (this) {
-        AssistantMode.offline => 'Offline Helper',
-        AssistantMode.online => 'Online AI',
-      };
+    AssistantMode.offline => 'Offline · Saved records',
+    AssistantMode.online => 'Online · Gemini',
+  };
 
   IconData get icon => switch (this) {
-        AssistantMode.offline => Icons.wifi_off_rounded,
-        AssistantMode.online => Icons.auto_awesome_rounded,
-      };
+    AssistantMode.offline => Icons.wifi_off_rounded,
+    AssistantMode.online => Icons.auto_awesome_rounded,
+  };
 
   Color get color => switch (this) {
-        AssistantMode.offline => AuthPalette.mint,
-        AssistantMode.online => AuthPalette.lavenderMist,
-      };
+    AssistantMode.offline => AuthPalette.mint,
+    AssistantMode.online => AuthPalette.lavenderMist,
+  };
 }

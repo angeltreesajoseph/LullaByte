@@ -43,3 +43,9 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Supply iOS configuration and signing files through the cloud secret store.
+ios/Runner/GoogleService-Info.plist
+*.p8
+*.p12
+*.mobileprovision

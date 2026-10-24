@@ -12,11 +12,10 @@ class AppConfig {
 
   static const AppEnvironment environment = AppEnvironment.development;
 
-  /// Base URL of the FastAPI backend (SAD Section 10). Not yet reachable —
-  /// no network calls are made by the application foundation.
+  /// Live backend; builds can override this for staging or local development.
   static const String apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'https://api.lullabyte.example.com/api/v1',
+    defaultValue: 'https://lullabyte-api.onrender.com/api/v1',
   );
 
   static const Duration apiConnectTimeout = Duration(seconds: 15);

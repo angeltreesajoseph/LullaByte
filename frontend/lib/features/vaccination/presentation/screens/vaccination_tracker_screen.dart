@@ -1,3 +1,4 @@
+import '../../../../core/network/care_dio.dart';
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -25,6 +26,7 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
   List<Map<String, dynamic>> _entries = [];
   Map<String, dynamic> _profile = {};
   bool _loading = true, _busy = false;
+  bool _refreshing = false, _freshReady = false;
   String? _error;
   String? _saveError;
   String? _reminderError;
@@ -36,7 +38,7 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
     if (widget.api != null) return widget.api!;
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) throw StateError('Sign in required');
-    return Dio(
+    return careDio(
       BaseOptions(
         baseUrl: AppConfig.apiBaseUrl,
         connectTimeout: const Duration(seconds: 60),
@@ -67,11 +69,22 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
   Future<void> _load() async {
     final generation = ++_generation;
     final id = BabyProfileStore.id;
+    final snapshot = BabyProfileStore.snapshotFor(id);
     setState(() {
-      _loading = true;
+      _loading = snapshot == null;
+      _refreshing = id != null;
+      _freshReady = false;
       _error = null;
-      _entries = [];
-      _profile = {};
+      _profile = snapshot ?? {};
+      _entries = snapshot == null
+          ? []
+          : mergeVaccinations(
+              DateTime.tryParse(snapshot['birth_date'] as String? ?? ''),
+              ((snapshot['tracker_data'] as Map?)?['vaccinations'] as List? ??
+                      [])
+                  .map((r) => Map<String, dynamic>.from(r as Map))
+                  .toList(),
+            );
       _saveError = null;
       _reminderError = null;
     });
@@ -88,10 +101,12 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
       if (!mounted || generation != _generation || id != BabyProfileStore.id)
         return;
       final data = Map<String, dynamic>.from(response.data['data'] as Map);
+      BabyProfileStore.rememberSnapshot(data);
       final birth = DateTime.tryParse(data['birth_date'] as String? ?? '');
       if (birth != null && birth.isAfter(DateTime.now())) {
         setState(() {
           _loading = false;
+          _refreshing = false;
           _error =
               'The birth date is in the future. Correct it in Profile before calculating vaccinations.';
         });
@@ -109,11 +124,21 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
         );
         _loading = false;
       });
+      setState(() {
+        _refreshing = false;
+        _freshReady = true;
+      });
       await _sync(id);
-    } catch (_) {
+    } catch (error) {
       if (mounted && generation == _generation)
         setState(() {
           _loading = false;
+          _refreshing = false;
+          if (error is DioException &&
+              {401, 403, 404}.contains(error.response?.statusCode)) {
+            _entries = [];
+            _profile = {};
+          }
           _error =
               'Could not load vaccinations. Check the connection and retry.';
         });
@@ -128,7 +153,12 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null || babyId != BabyProfileStore.id) return;
     try {
-      await VaccinationReminders.sync(user.uid, babyId, _name, _entries);
+      await VaccinationReminders.sync(
+        user.uid,
+        babyId,
+        _name,
+        _profile['access_role'] == 'viewer' ? [] : _entries,
+      );
       if (mounted) setState(() => _reminderError = null);
     } catch (_) {
       if (mounted)
@@ -143,6 +173,10 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
   }
 
   Future<bool> _persist(List<Map<String, dynamic>> entries) async {
+    if (_refreshing || !_freshReady) {
+      _message('Wait for the latest records to refresh before saving.');
+      return false;
+    }
     final id = BabyProfileStore.id;
     final generation = _generation;
     if (_busy || id == null) return false;
@@ -167,7 +201,9 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
       BabyProfileStore.data = {
         ...BabyProfileStore.data,
         'tracker_data': {
-          ...?(BabyProfileStore.data['tracker_data'] as Map<String, dynamic>?),
+          ...Map<String, dynamic>.from(
+            BabyProfileStore.data['tracker_data'] as Map? ?? {},
+          ),
           'vaccinations': saved,
         },
       };
@@ -461,11 +497,11 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
                 ':' +
                 reminderIst.minute.toString().padLeft(2, '0') +
                 ' IST',
-      onToggle: _busy || excluded ? null : () => _toggle(entry),
-      onEdit: _busy ? null : () => _edit(entry),
-      onReminder: _busy ? null : () => _remind(entry),
+      onToggle: _busy || _refreshing || excluded ? null : () => _toggle(entry),
+      onEdit: _busy || _refreshing ? null : () => _edit(entry),
+      onReminder: _busy || _refreshing ? null : () => _remind(entry),
       menu: PopupMenuButton<String>(
-        enabled: !_busy,
+        enabled: !_busy && !_refreshing,
         icon: const Icon(Icons.more_horiz, color: AuthPalette.textMuted),
         onSelected: (action) async {
           final generation = _generation;
@@ -591,7 +627,9 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
                     Row(
                       children: [
                         AuthBackButton(
-                          onPressed: () => context.go(RoutePaths.dashboard),
+                          onPressed: () => Navigator.of(context).canPop()
+                              ? Navigator.pop(context)
+                              : context.go(RoutePaths.dashboard),
                         ),
                         const Spacer(),
                         const Text(
@@ -659,6 +697,8 @@ class _VaccinationScreenState extends State<VaccinationScreen> {
                       ),
                     ),
                     const SizedBox(height: 10),
+                    if (_refreshing && !_loading)
+                      const LinearProgressIndicator(),
                     if (_loading)
                       const LinearProgressIndicator()
                     else if (_error != null) ...[

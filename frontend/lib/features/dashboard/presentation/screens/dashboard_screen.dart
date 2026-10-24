@@ -1,3 +1,4 @@
+import '../../../../core/network/care_dio.dart';
 import 'dart:math' as math;
 import 'dart:async';
 
@@ -13,8 +14,15 @@ import '../../../baby_management/data/baby_api.dart';
 import '../../../baby_management/application/baby_profile_store.dart';
 import '../../../baby_management/presentation/widgets/baby_avatar.dart';
 import '../../../vaccination/application/vaccination_reminders.dart';
+import '../../../feeding/application/feeding_reminders.dart';
+import '../../../feeding/domain/feeding_records.dart';
+import '../../../sleep/domain/sleep_records.dart';
+import '../../../growth/domain/growth_records.dart';
 import '../../../authentication/presentation/widgets/auth_background.dart';
 import '../../../authentication/presentation/widgets/auth_palette.dart';
+import '../../../notifications/data/shared_alert_inbox.dart';
+import '../../../notifications/data/reminder_inbox.dart';
+import '../../../family_sharing/application/shared_care_connection.dart';
 
 /// Parent Dashboard screen (SRS Section 10.5) — the "Home" tab of the
 /// persistent shell navigation (see `core/router/main_navigation_shell.dart`).
@@ -32,7 +40,8 @@ import '../../../authentication/presentation/widgets/auth_palette.dart';
 /// cards in a 2-column grid) with a full-width Milestones card beneath,
 /// Growth, Today's Care, then Recent Activity.
 class DashboardScreen extends StatefulWidget {
-  const DashboardScreen({super.key});
+  const DashboardScreen({super.key, this.api});
+  final Dio? api;
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
@@ -51,14 +60,58 @@ class _DashboardScreenState extends State<DashboardScreen>
   String _babyName = 'Your baby';
   String _babyAgeLabel = 'Profile not loaded';
   List<Map<String, dynamic>> _babies = const [];
-  static const _unreadNotifications = 3;
-  static const _babyStatus = _BabyStatus.sleeping;
+  bool _profileStarted = false, _loadingProfile = false;
+  String? _profileError;
+  int _unreadNotifications = 0;
+  Timer? _alertTimer;
+  bool _loadingAlerts = false;
+
+  Future<void> _loadAlerts() async {
+    if (_loadingAlerts || !mounted) return;
+    _loadingAlerts = true;
+    try {
+      final api = widget.api ?? await sharedCareClient();
+      final response = await api.get('/sharing/alerts');
+      final data = response.data['data'] as Map;
+      final uid = widget.api == null
+          ? FirebaseAuth.instance.currentUser?.uid
+          : null;
+      final accessible = (data['babies'] as List? ?? [])
+          .where((b) => (b as Map)['access_role'] != 'viewer')
+          .map((b) => (b as Map)['id'] as String)
+          .toSet();
+      final reminders = uid == null
+          ? <Map<String, dynamic>>[]
+          : await ReminderInbox.due(uid, accessible);
+      final count =
+          (data['unread_count'] as num).toInt() +
+          reminders.where((r) => r['read'] != true).length;
+      if (mounted) setState(() => _unreadNotifications = count);
+    } catch (_) {
+      if (mounted) setState(() => _unreadNotifications = 0);
+    } finally {
+      _loadingAlerts = false;
+    }
+  }
+
+  _BabyStatus get _babyStatus {
+    final rows =
+        (BabyProfileStore.data['tracker_data'] as Map?)?['sleep'] as List? ??
+        [];
+    return rows.any(
+          (r) => SleepRecords.active(Map<String, dynamic>.from(r as Map)),
+        )
+        ? _BabyStatus.sleeping
+        : _BabyStatus.unrecorded;
+  }
+
   static const _lastCryTime = 'Not recorded';
-  static const _sleepSummary = 'Not recorded';
-  static const _feedingSummary = 'Not recorded';
-  String get _weightSummary => BabyProfileStore.data['birth_weight_kg'] == null
-      ? 'Not recorded'
-      : "${BabyProfileStore.data['birth_weight_kg']} kg (registration)";
+  String get _sleepSummary =>
+      SleepRecords.dashboard(BabyProfileStore.data, DateTime.now());
+  String get _feedingSummary =>
+      FeedingRecords.dashboard(BabyProfileStore.data, DateTime.now());
+  String get _weightSummary =>
+      GrowthRecords.dashboardWeight(BabyProfileStore.data);
   static const _weightTrend = [5.4, 5.7, 5.9, 6.0, 6.2];
   static const _heightPercentile = 0.62;
   static const _lastMeasuredLabel = 'Last measured 5 days ago';
@@ -66,24 +119,49 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _loadBabyProfile();
+    if (!_profileStarted) {
+      _profileStarted = true;
+      _loadBabyProfile();
+    }
   }
 
-  Future<void> _loadBabyProfile() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-    if (mounted)
+  Future<void> _loadBabyProfile({bool fresh = false}) async {
+    if (_loadingProfile) return;
+    final user = widget.api == null ? FirebaseAuth.instance.currentUser : null;
+    if (user == null && widget.api == null) return;
+    setState(() {
+      _loadingProfile = true;
+      _profileError = null;
+    });
+    if (mounted && user != null)
       setState(
         () => _parentName = user.displayName?.trim().isNotEmpty == true
             ? user.displayName!.trim()
             : 'Parent',
       );
     try {
-      final token = await user.getIdToken();
-      final dio = Dio(BaseOptions(baseUrl: AppConfig.apiBaseUrl));
+      final token = await user?.getIdToken();
+      final dio =
+          widget.api ??
+          careDio(
+            BaseOptions(
+              baseUrl: AppConfig.apiBaseUrl,
+              connectTimeout: const Duration(seconds: 20),
+              receiveTimeout: const Duration(seconds: 30),
+            ),
+          );
       if (token != null) dio.options.headers['Authorization'] = 'Bearer $token';
-      final babies = await BabyApi(dio).list();
-      if (!mounted || babies.isEmpty) return;
+      final babies = await BabyApi(dio).list(fresh: fresh);
+      if (!mounted ||
+          (widget.api == null &&
+              FirebaseAuth.instance.currentUser?.uid != user?.uid))
+        return;
+      if (babies.isEmpty) {
+        setState(() => _babies = []);
+        BabyProfileStore.babies = [];
+        BabyProfileStore.select({});
+        return;
+      }
       final currentId = BabyProfileStore.id;
       final baby = babies.cast<Map<String, dynamic>>().firstWhere(
         (item) => item['id'] == currentId,
@@ -101,13 +179,28 @@ class _DashboardScreenState extends State<DashboardScreen>
       setState(() => _babies = babies);
       BabyProfileStore.babies = babies;
       BabyProfileStore.select(baby);
-      unawaited(
-        VaccinationReminders.restore(user.uid, babies).catchError((Object _) {
-          // Vaccination screen offers reminder status/retry without blocking Home.
-        }),
+      if (user != null) {
+        unawaited(
+          FeedingReminders.restore(user.uid, babies).catchError((Object _) {}),
+        );
+        unawaited(
+          VaccinationReminders.restore(user.uid, babies).catchError((Object _) {
+            // Vaccination screen offers reminder status/retry without blocking Home.
+          }),
+        );
+      }
+    } catch (error) {
+      if (mounted)
+        setState(
+          () => _profileError = error is DioException
+              ? 'Could not load profiles (${error.response?.statusCode ?? error.type.name}). Tap Retry.'
+              : 'Could not refresh baby profiles. Check your connection and retry.',
+        );
+      debugPrint(
+        'Profile load failed: ${error is DioException ? '${error.type.name}, HTTP ${error.response?.statusCode}' : error.runtimeType}',
       );
-    } catch (_) {
-      // Keep the calm dashboard available if the API is temporarily offline.
+    } finally {
+      if (mounted) setState(() => _loadingProfile = false);
     }
   }
 
@@ -163,9 +256,27 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   void initState() {
     super.initState();
+    _babies = BabyProfileStore.babies;
+    if (BabyProfileStore.id != null) {
+      _babyName = BabyProfileStore.name;
+      final dob = DateTime.tryParse(
+        BabyProfileStore.data['birth_date'] as String? ?? '',
+      );
+      _babyAgeLabel = dob == null ? 'Age unavailable' : _formatAge(dob);
+    }
+    SharedAlertInbox.changes.addListener(_loadAlerts);
+    _loadAlerts();
+    _alertTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed &&
+          GoRouter.maybeOf(context)?.routeInformationProvider.value.uri.path ==
+              RoutePaths.dashboard) {
+        _loadAlerts();
+      }
+    });
+    BabyProfileStore.changes.addListener(_feedingChanged);
     _entranceController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 900),
+      duration: const Duration(milliseconds: 350),
     );
     _contentFade = CurvedAnimation(
       parent: _entranceController,
@@ -193,8 +304,26 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   @override
   void dispose() {
+    _alertTimer?.cancel();
+    SharedAlertInbox.changes.removeListener(_loadAlerts);
+    BabyProfileStore.changes.removeListener(_feedingChanged);
     _entranceController.dispose();
     super.dispose();
+  }
+
+  void _feedingChanged() {
+    if (mounted) {
+      setState(() {
+        _babies = BabyProfileStore.babies;
+        _babyName = BabyProfileStore.name;
+        final birthDate = DateTime.tryParse(
+          BabyProfileStore.data['birth_date'] as String? ?? '',
+        );
+        _babyAgeLabel = birthDate == null
+            ? 'Age unavailable'
+            : _formatAge(birthDate);
+      });
+    }
   }
 
   String get _greeting {
@@ -230,6 +359,14 @@ class _DashboardScreenState extends State<DashboardScreen>
   /// real, already-implemented screen via the existing GoRouter
   /// [RoutePaths].
   void _handleQuickAction(String label) {
+    if (BabyProfileStore.id == null && _loadingProfile) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Baby profiles are still loading. Please wait.'),
+        ),
+      );
+      return;
+    }
     switch (label) {
       case 'Analyze Cry':
         context.go(RoutePaths.cryAnalyzer);
@@ -292,26 +429,79 @@ class _DashboardScreenState extends State<DashboardScreen>
                                 },
                                 greeting: _greeting,
                                 unreadCount: _unreadNotifications,
-                                onBellTap: () =>
-                                    context.go(RoutePaths.notifications),
+                                onProfileTap: () =>
+                                    context.push(RoutePaths.babyProfile),
+                                onBellTap: () async {
+                                  await context.push(RoutePaths.notifications);
+                                  if (mounted) _loadAlerts();
+                                },
                               ),
                               const SizedBox(height: 18),
-                              FadeTransition(
-                                opacity: _heroFade,
-                                child: ScaleTransition(
-                                  scale: _heroScale,
-                                  alignment: Alignment.topCenter,
-                                  child: _BabyHeroCard(
-                                    babyName: _babyName,
-                                    babyAge: _babyAgeLabel,
-                                    status: _babyStatus,
-                                    lastCryTime: _lastCryTime,
-                                    sleepSummary: _sleepSummary,
-                                    feedingSummary: _feedingSummary,
-                                    weightSummary: _weightSummary,
+                              if (_loadingProfile && _babies.isEmpty)
+                                const Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 12),
+                                  child: Column(
+                                    children: [
+                                      LinearProgressIndicator(),
+                                      SizedBox(height: 8),
+                                      Text('Loading baby profiles…'),
+                                    ],
                                   ),
                                 ),
-                              ),
+                              if (_profileError != null)
+                                Card(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(12),
+                                    child: Column(
+                                      children: [
+                                        Text(_profileError!),
+                                        TextButton(
+                                          onPressed: () =>
+                                              _loadBabyProfile(fresh: true),
+                                          child: const Text('Retry'),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              if (_babies.isNotEmpty)
+                                FadeTransition(
+                                  opacity: _heroFade,
+                                  child: ScaleTransition(
+                                    scale: _heroScale,
+                                    alignment: Alignment.topCenter,
+                                    child: _BabyHeroCard(
+                                      babyName: _babyName,
+                                      babyAge: _babyAgeLabel,
+                                      status: _babyStatus,
+                                      lastCryTime: _lastCryTime,
+                                      sleepSummary: _sleepSummary,
+                                      feedingSummary: _feedingSummary,
+                                      weightSummary: _weightSummary,
+                                    ),
+                                  ),
+                                ),
+                              if (!_loadingProfile &&
+                                  _babies.isEmpty &&
+                                  _profileError == null)
+                                Card(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(20),
+                                    child: Column(
+                                      children: [
+                                        const Text('No baby profiles yet'),
+                                        TextButton(
+                                          onPressed: () => context.push(
+                                            RoutePaths.babyRegistration,
+                                          ),
+                                          child: const Text(
+                                            'Create baby profile',
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
                               const SizedBox(height: 22),
                               _SectionHeading(title: 'Quick Actions'),
                               const SizedBox(height: 10),
@@ -348,25 +538,28 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 }
 
-enum _BabyStatus { sleeping, awake, feeding }
+enum _BabyStatus { sleeping, awake, feeding, unrecorded }
 
 extension on _BabyStatus {
   String get label => switch (this) {
     _BabyStatus.sleeping => 'Sleeping',
     _BabyStatus.awake => 'Awake',
     _BabyStatus.feeding => 'Feeding',
+    _BabyStatus.unrecorded => 'No active timer',
   };
 
   IconData get icon => switch (this) {
     _BabyStatus.sleeping => Icons.bedtime_rounded,
     _BabyStatus.awake => Icons.wb_sunny_rounded,
     _BabyStatus.feeding => Icons.local_drink_rounded,
+    _BabyStatus.unrecorded => Icons.bedtime_outlined,
   };
 
   Color get color => switch (this) {
     _BabyStatus.sleeping => AuthPalette.lavenderMist,
     _BabyStatus.awake => AuthPalette.mint,
     _BabyStatus.feeding => AuthPalette.powderBlue,
+    _BabyStatus.unrecorded => AuthPalette.lavenderMist,
   };
 }
 
@@ -508,6 +701,7 @@ class _DashboardHeader extends StatelessWidget {
     required this.greeting,
     required this.unreadCount,
     required this.onBellTap,
+    required this.onProfileTap,
   });
 
   final String parentName;
@@ -519,6 +713,7 @@ class _DashboardHeader extends StatelessWidget {
   final String greeting;
   final int unreadCount;
   final VoidCallback onBellTap;
+  final VoidCallback onProfileTap;
 
   @override
   Widget build(BuildContext context) {
@@ -527,24 +722,32 @@ class _DashboardHeader extends StatelessWidget {
       children: [
         Row(
           children: [
-            Container(
-              width: 50,
-              height: 50,
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [AuthPalette.softCoral, AuthPalette.lavenderMist],
-                ),
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                parentName.isEmpty ? '?' : parentName[0],
-                style: GoogleFonts.quicksand(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                  color: Colors.white,
+            Semantics(
+              button: true,
+              label: 'Open $babyName’s profile',
+              child: Tooltip(
+                message: 'Baby profile',
+                child: InkWell(
+                  key: const ValueKey('dashboard_profile_button'),
+                  onTap: onProfileTap,
+                  customBorder: const CircleBorder(),
+                  child: Container(
+                    width: 50,
+                    height: 50,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          AuthPalette.softCoral,
+                          AuthPalette.lavenderMist,
+                        ],
+                      ),
+                    ),
+                    alignment: Alignment.center,
+                    child: const BabyAvatar(size: 46),
+                  ),
                 ),
               ),
             ),
@@ -568,11 +771,15 @@ class _DashboardHeader extends StatelessWidget {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(
-                          '$babyName • $babyAge',
-                          style: GoogleFonts.nunito(
-                            fontSize: 13.5,
-                            color: AuthPalette.textMuted,
+                        Flexible(
+                          child: Text(
+                            '$babyName • $babyAge',
+                            style: GoogleFonts.nunito(
+                              fontSize: 13.5,
+                              color: AuthPalette.textMuted,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         const SizedBox.shrink(),

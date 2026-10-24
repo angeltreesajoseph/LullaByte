@@ -1,15 +1,18 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'dart:async';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../../features/notifications/application/notification_navigation.dart';
 
 import '../../features/ai_assistant/presentation/screens/ai_assistant_screen.dart';
 import '../../features/authentication/presentation/screens/login_screen.dart';
 import '../../features/authentication/presentation/screens/register_screen.dart';
-import '../../features/baby_management/presentation/screens/baby_profile_screen.dart';
+import '../../features/baby_management/presentation/screens/account_profile_screen.dart';
 import '../../features/baby_management/presentation/screens/baby_registration_screen.dart';
 import '../../features/cry_analyzer/presentation/screens/cry_analyzer_screen.dart';
 import '../../features/dashboard/presentation/screens/dashboard_screen.dart';
 import '../../features/diaper/presentation/screens/diaper_screen.dart';
-import '../../features/family_sharing/presentation/screens/family_sharing_screen.dart';
+import '../../features/family_sharing/presentation/screens/real_family_sharing_screen.dart';
 import '../../features/feeding/presentation/screens/feeding_screen.dart';
 import '../../features/gallery/presentation/screens/gallery_screen.dart';
 import '../../features/growth/presentation/screens/growth_screen.dart';
@@ -25,11 +28,13 @@ import '../../screens/onboarding_screen.dart';
 import '../../screens/splash_screen.dart';
 import 'main_navigation_shell.dart';
 import 'route_paths.dart';
+import '../../features/family_sharing/application/shared_care_connection.dart';
+import '../../features/family_sharing/presentation/screens/chat_inbox_screen.dart';
 
 /// Application routing configuration (SAD Section 7.2; SRS Section 10.5.6,
 /// Navigation), built with `go_router`.
 ///
-/// The four main sections — Home, Trackers, Memories, Profile — live
+/// The four main sections — Home, Trackers, Memories, Chat — live
 /// inside a [StatefulShellRoute.indexedStack] wrapped by
 /// [MainNavigationShell], so the persistent pastel bottom bar (with the
 /// elevated Luma button) stays visible while switching between them and
@@ -43,10 +48,18 @@ import 'route_paths.dart';
 /// the Authentication feature (SAD Section 8.2) and is intentionally out
 /// of scope for the application foundation.
 final goRouterProvider = Provider<GoRouter>((ref) {
-  return GoRouter(
+  final router = GoRouter(
     initialLocation: RoutePaths.splash,
     debugLogDiagnostics: true,
     routes: [
+      GoRoute(
+        path: '/join',
+        builder: (context, state) => FamilySharingScreen(
+          invitationId: PendingCareInvitation.parse(
+            state.uri.queryParameters['invitation'] ?? '',
+          ),
+        ),
+      ),
       GoRoute(
         path: RoutePaths.splash,
         name: RouteNames.splash,
@@ -73,7 +86,8 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const BabyRegistrationScreen(),
       ),
       StatefulShellRoute.indexedStack(
-        builder: (context, state, navigationShell) => MainNavigationShell(navigationShell: navigationShell),
+        builder: (context, state, navigationShell) =>
+            MainNavigationShell(navigationShell: navigationShell),
         branches: [
           StatefulShellBranch(
             routes: [
@@ -105,13 +119,18 @@ final goRouterProvider = Provider<GoRouter>((ref) {
           StatefulShellBranch(
             routes: [
               GoRoute(
-                path: RoutePaths.babyProfile,
-                name: RouteNames.babyProfile,
-                builder: (context, state) => const BabyProfileScreen(),
+                path: RoutePaths.chat,
+                name: RouteNames.chat,
+                builder: (context, state) => const ChatInboxScreen(),
               ),
             ],
           ),
         ],
+      ),
+      GoRoute(
+        path: RoutePaths.babyProfile,
+        name: RouteNames.babyProfile,
+        builder: (context, state) => const AccountProfileScreen(),
       ),
       GoRoute(
         path: RoutePaths.cryAnalyzer,
@@ -171,13 +190,55 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: RoutePaths.familySharing,
         name: RouteNames.familySharing,
-        builder: (context, state) => const FamilySharingScreen(),
+        builder: (context, state) => FamilySharingScreen(
+          joinMode: state.uri.queryParameters['join'] == 'true',
+        ),
       ),
       GoRoute(
         path: RoutePaths.notifications,
         name: RouteNames.notifications,
-        builder: (context, state) => const NotificationsScreen(),
+        builder: (context, state) => NotificationsScreen(
+          initialActivity: int.tryParse(
+            state.uri.queryParameters['activity'] ?? '',
+          ),
+          initialReminder: state.uri.queryParameters['reminder'],
+        ),
       ),
     ],
   );
+  SharedCareLiveSync.instance.start(
+    () => router.routeInformationProvider.value.uri.path,
+  );
+  void openPendingNotification() {
+    final pending = NotificationNavigation.pending.value;
+    if (pending == null) return;
+    final path = router.routeInformationProvider.value.uri.path;
+    if ({
+      RoutePaths.splash,
+      RoutePaths.onboarding,
+      RoutePaths.login,
+      RoutePaths.register,
+    }.contains(path))
+      return;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    NotificationNavigation.pending.value = null;
+    if (pending['uid'] != null && pending['uid'] != user.uid) return;
+    final query = Map<String, String>.from(pending)..remove('uid');
+    scheduleMicrotask(
+      () => router.go(
+        Uri(path: RoutePaths.notifications, queryParameters: query).toString(),
+      ),
+    );
+  }
+
+  NotificationNavigation.pending.addListener(openPendingNotification);
+  router.routeInformationProvider.addListener(openPendingNotification);
+  ref.onDispose(() {
+    NotificationNavigation.pending.removeListener(openPendingNotification);
+    router.routeInformationProvider.removeListener(openPendingNotification);
+    SharedCareLiveSync.instance.stop();
+    router.dispose();
+  });
+  return router;
 });

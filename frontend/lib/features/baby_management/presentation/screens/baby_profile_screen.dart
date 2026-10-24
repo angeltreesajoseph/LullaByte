@@ -1,3 +1,4 @@
+import '../../../../core/network/care_dio.dart';
 import 'dart:math' as math;
 import 'dart:convert';
 import 'package:image_picker/image_picker.dart';
@@ -5,18 +6,17 @@ import 'package:image_picker/image_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:dio/dio.dart';
 
 import '../../../../core/router/route_paths.dart';
 import '../../../../core/auth/firebase_auth_service.dart';
 import '../../../../core/config/app_config.dart';
-import '../../data/baby_api.dart';
 import '../../../authentication/presentation/widgets/auth_background.dart';
 import '../../../authentication/presentation/widgets/auth_form_controls.dart';
 import '../../../authentication/presentation/widgets/auth_palette.dart';
 import '../../application/baby_profile_store.dart';
 import '../widgets/baby_avatar.dart';
+import '../../../family_sharing/presentation/widgets/join_care_team_card.dart';
 
 /// Baby Profile screen (SRS Section 10.13).
 ///
@@ -26,12 +26,12 @@ import '../widgets/baby_avatar.dart';
 /// language come directly from `features/authentication/presentation/
 /// widgets/` (read-only reuse; those files are not modified).
 ///
-/// Every value shown is realistic sample data. There is no backend or
-/// state-management integration yet — Edit Profile opens a real (local
-/// state only) edit form; Share Profile, Export PDF, and Open Memories
-/// all surface a friendly "coming soon" toast.
+/// Displays the selected baby's saved details. The owner can edit that
+/// profile; charts, reports and memories remain in their dedicated sections.
 class BabyProfileScreen extends StatefulWidget {
-  const BabyProfileScreen({super.key});
+  const BabyProfileScreen({super.key, this.api, this.showAccountActions = true});
+  final Dio? api;
+  final bool showAccountActions;
 
   @override
   State<BabyProfileScreen> createState() => _BabyProfileScreenState();
@@ -68,51 +68,11 @@ class _BabyProfileScreenState extends State<BabyProfileScreen>
     context.go(RoutePaths.login);
   }
 
-  Future<void> _enableTwinMode() async {
-    final controller = TextEditingController();
-    final name = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add a twin profile'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          textCapitalization: TextCapitalization.words,
-          decoration: const InputDecoration(labelText: "Twin's name"),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: const Text('Add twin'),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-    if (!mounted || name == null || name.length < 2) return;
-    try {
-      final user = FirebaseAuthService().currentUser;
-      if (user == null) throw StateError('Please sign in again.');
-      final dio = Dio(BaseOptions(baseUrl: AppConfig.apiBaseUrl));
-      final token = await user.getIdToken();
-      if (token != null) dio.options.headers['Authorization'] = 'Bearer $token';
-      await BabyApi(dio).create(name: name);
-      if (mounted) _showToast('$name was added.');
-    } catch (_) {
-      if (mounted)
-        _showToast('Could not add the twin profile. Please try again.');
-    }
-  }
-
   late final Animation<Offset> _contentSlide;
   late final Animation<double> _avatarFade;
   late final Animation<double> _avatarScale;
 
-  // Realistic sample data — no backend/state-management wiring yet.
+  // Values follow the selected baby, including when switching twins.
   String get _babyName => BabyProfileStore.name;
   String get _ageLabel {
     final date = _dateOfBirth;
@@ -149,8 +109,6 @@ class _BabyProfileScreenState extends State<BabyProfileScreen>
     'December',
   ][month - 1];
   static const _healthStatus = 'Profile';
-  String get _parentName =>
-      FirebaseAuth.instance.currentUser?.displayName ?? 'Parent';
   String get _weight => _valueWithUnit('birth_weight_kg', 'kg');
   String get _height => _valueWithUnit('birth_length_cm', 'cm');
   String get _headCircumference =>
@@ -171,24 +129,13 @@ class _BabyProfileScreenState extends State<BabyProfileScreen>
     return value == null ? 'Not recorded' : '$value $unit';
   }
 
-  static const _weightTrend = [5.4, 5.7, 5.9, 6.0, 6.2];
-  static const _heightTrend = [54.0, 56.5, 58.0, 60.0, 62.0];
-  static const _lastUpdatedLabel = 'Last updated 5 days ago';
-  static const _avgSleep = '13h 20m';
-  static const _feedingsToday = '7';
-  static const _diapersToday = '5';
-  static const _criesAnalyzed = '3';
-  static const _upcomingVaccine = 'Not recorded';
-  static const _lastCheckup = 'Not recorded';
-  static const _medications = 'Not recorded';
-
   @override
   void initState() {
     super.initState();
     BabyProfileStore.changes.addListener(_refreshProfile);
     _entranceController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 900),
+      duration: const Duration(milliseconds: 350),
     )..forward();
     _contentFade = CurvedAnimation(
       parent: _entranceController,
@@ -220,29 +167,40 @@ class _BabyProfileScreenState extends State<BabyProfileScreen>
     super.dispose();
   }
 
-  void _showToast(String message) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: AuthPalette.textDark,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-          content: Text(
-            message,
-            style: GoogleFonts.nunito(
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-      );
-  }
-
   void _refreshProfile() {
     if (mounted) setState(() {});
+  }
+
+  bool get _canEdit =>
+      BabyProfileStore.id != null &&
+      !{'viewer', 'caregiver'}.contains(BabyProfileStore.data['access_role']);
+
+  String _contact(String key) {
+    final text = BabyProfileStore.data[key]?.toString().trim() ?? '';
+    return text.isEmpty ? 'Not recorded' : text;
+  }
+
+  void _editProfile() {
+    if (!_canEdit) return;
+    final baby = Map<String, dynamic>.from(BabyProfileStore.data);
+    final screen = _EditBabyProfileScreen(
+      api: widget.api,
+      baby: baby,
+      initialName: _babyName,
+      initialDateOfBirth: _dateOfBirth,
+      initialGender: _gender,
+      initialWeight: _weight,
+      initialHeight: _height,
+      initialHeadCircumference: _headCircumference,
+      initialBloodGroup: _bloodGroup,
+      initialAllergies: _allergies,
+      initialPediatrician: _pediatrician,
+      initialHospital: _hospital,
+    );
+    Navigator.of(
+      context,
+      rootNavigator: true,
+    ).push(MaterialPageRoute(builder: (_) => screen));
   }
 
   @override
@@ -255,7 +213,7 @@ class _BabyProfileScreenState extends State<BabyProfileScreen>
           const Positioned.fill(child: _ProfileFloatingDecor()),
           SafeArea(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
               child: Center(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 580),
@@ -268,214 +226,135 @@ class _BabyProfileScreenState extends State<BabyProfileScreen>
                         children: [
                           Row(
                             children: [
-                              AuthBackButton(
-                                onPressed: () =>
-                                    context.go(RoutePaths.dashboard),
+                              BackButton(
+                                onPressed: () {
+                                  if (Navigator.of(context).canPop()) {
+                                    Navigator.of(context).pop();
+                                  } else {
+                                    context.go(RoutePaths.dashboard);
+                                  }
+                                },
                               ),
-                              const Spacer(),
-                            ],
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 4),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    'Baby Profile',
-                                    style: GoogleFonts.quicksand(
-                                      fontSize: 26,
-                                      fontWeight: FontWeight.w700,
-                                      color: AuthPalette.textDark,
-                                    ),
+                              Expanded(
+                                child: Text(
+                                  'Baby Profile',
+                                  style: GoogleFonts.quicksand(
+                                    fontSize: 26,
+                                    fontWeight: FontWeight.w700,
+                                    color: AuthPalette.textDark,
                                   ),
                                 ),
-                                _CircleIconButton(
-                                  icon: Icons.edit_outlined,
-                                  label: 'Edit profile',
-                                  // rootNavigator: true escapes this tab's branch
-                                  // Navigator so Edit Profile renders full-screen,
-                                  // outside MainNavigationShell's persistent bottom bar.
-                                  onTap: () =>
-                                      Navigator.of(
-                                        context,
-                                        rootNavigator: true,
-                                      ).push(
-                                        MaterialPageRoute(
-                                          builder: (context) =>
-                                              _EditBabyProfileScreen(
-                                                initialName: _babyName,
-                                                initialDateOfBirth:
-                                                    _dateOfBirth ??
-                                                    DateTime.now(),
-                                                initialGender: _gender,
-                                                initialWeight: _weight,
-                                                initialHeight: _height,
-                                                initialHeadCircumference:
-                                                    _headCircumference,
-                                                initialBloodGroup: _bloodGroup,
-                                                initialAllergies: _allergies,
-                                                initialPediatrician:
-                                                    _pediatrician,
-                                                initialHospital: _hospital,
-                                              ),
-                                        ),
-                                      ),
-                                ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 18),
-                          FadeTransition(
-                            opacity: _avatarFade,
-                            child: ScaleTransition(
-                              scale: _avatarScale,
-                              child: _ProfileHeroCard(
-                                babyName: _babyName,
-                                ageLabel: _ageLabel,
-                                bornLabel: _bornLabel,
-                                healthStatus: _healthStatus,
-                                parentName: _parentName,
-                                weight: _weight,
-                                height: _height,
-                                headCircumference: _headCircumference,
+                          if (BabyProfileStore.id == null)
+                            const AuthCard(
+                              child: Text(
+                                'Choose a baby from Home to view their profile.',
+                              ),
+                            )
+                          else ...[
+                            FadeTransition(
+                              opacity: _avatarFade,
+                              child: ScaleTransition(
+                                scale: _avatarScale,
+                                child: _ProfileHeroCard(
+                                  babyName: _babyName,
+                                  ageLabel: _ageLabel,
+                                  bornLabel: _bornLabel,
+                                  healthStatus: _healthStatus,
+                                  weight: _weight,
+                                  height: _height,
+                                  headCircumference: _headCircumference,
+                                ),
                               ),
                             ),
-                          ),
-                          const SizedBox(height: 22),
-                          _SectionHeading(title: 'About'),
-                          const SizedBox(height: 10),
-                          AuthCard(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                _InfoRow(
-                                  icon: Icons.wc_rounded,
-                                  label: 'Gender',
-                                  value: _gender,
-                                ),
-                                _InfoDivider(),
-                                _InfoRow(
-                                  icon: Icons.bloodtype_outlined,
-                                  label: 'Blood Group',
-                                  value: _bloodGroup,
-                                ),
-                                _InfoDivider(),
-                                _InfoRow(
-                                  icon: Icons.health_and_safety_outlined,
-                                  label: 'Allergies',
-                                  value: _allergies,
-                                ),
-                                _InfoDivider(),
-                                _InfoRow(
-                                  icon: Icons.medical_services_outlined,
-                                  label: 'Pediatrician',
-                                  value: _pediatrician,
-                                ),
-                                _InfoDivider(),
-                                _InfoRow(
-                                  icon: Icons.local_hospital_outlined,
-                                  label: 'Hospital',
-                                  value: _hospital,
-                                ),
-                              ],
+                            TextButton.icon(
+                              onPressed: () => context.go(RoutePaths.growth),
+                              icon: const Icon(Icons.show_chart_rounded),
+                              label: const Text('View growth tracker'),
                             ),
-                          ),
-                          const SizedBox(height: 22),
-                          _SectionHeading(title: 'Growth Overview'),
-                          const SizedBox(height: 10),
-                          const AuthCard(
-                            child: Text(
-                              'View saved measurements in the Growth tracker.',
+                            const SizedBox(height: 10),
+                            _SectionHeading(title: 'Baby details'),
+                            const SizedBox(height: 10),
+                            AuthCard(
+                              child: Column(
+                                children: [
+                                  _InfoRow(
+                                    icon: Icons.wc_rounded,
+                                    label: 'Gender',
+                                    value: _gender,
+                                  ),
+                                  _InfoDivider(),
+                                  _InfoRow(
+                                    icon: Icons.bloodtype_outlined,
+                                    label: 'Blood group',
+                                    value: _bloodGroup,
+                                  ),
+                                  _InfoDivider(),
+                                  _InfoRow(
+                                    icon: Icons.health_and_safety_outlined,
+                                    label: 'Allergies',
+                                    value: _allergies,
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 22),
-                          _SectionHeading(title: 'Care Summary'),
-                          const SizedBox(height: 10),
-                          const AuthCard(
-                            child: Text(
-                              'Open a tracker to view this baby\'s saved care records.',
+                            const SizedBox(height: 22),
+                            _SectionHeading(title: 'Care contacts'),
+                            const SizedBox(height: 10),
+                            AuthCard(
+                              child: Column(
+                                children: [
+                                  _InfoRow(
+                                    icon: Icons.phone_outlined,
+                                    label: 'Parent contact',
+                                    value: _contact('parent_phone'),
+                                  ),
+                                  _InfoDivider(),
+                                  _InfoRow(
+                                    icon: Icons.medical_services_outlined,
+                                    label: 'Pediatrician',
+                                    value: _pediatrician,
+                                  ),
+                                  _InfoDivider(),
+                                  _InfoRow(
+                                    icon: Icons.phone_outlined,
+                                    label: 'Pediatrician contact',
+                                    value: _contact('pediatrician_phone'),
+                                  ),
+                                  _InfoDivider(),
+                                  _InfoRow(
+                                    icon: Icons.local_hospital_outlined,
+                                    label: 'Hospital',
+                                    value: _hospital,
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 22),
-                          _SectionHeading(title: 'Medical'),
-                          const SizedBox(height: 10),
-                          AuthCard(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: const [
-                                _MedicalRow(
-                                  icon: Icons.vaccines_rounded,
-                                  color: AuthPalette.softCoral,
-                                  title: 'Upcoming Vaccine',
-                                  detail: _upcomingVaccine,
+                            const SizedBox(height: 22),
+                            if (_canEdit)
+                              AuthPrimaryButton(
+                                label: 'Edit Profile',
+                                isLoading: false,
+                                onPressed: _editProfile,
+                              )
+                            else
+                              const AuthCard(
+                                child: Text(
+                                  'Shared profile. Only the parent can edit baby details.',
                                 ),
-                                _MedicalRow(
-                                  icon: Icons.fact_check_outlined,
-                                  color: AuthPalette.powderBlue,
-                                  title: 'Last Checkup',
-                                  detail: _lastCheckup,
-                                ),
-                                _MedicalRow(
-                                  icon: Icons.medication_rounded,
-                                  color: AuthPalette.mint,
-                                  title: 'Medications',
-                                  detail: _medications,
-                                  isLast: true,
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 22),
+                              ),
+                            const SizedBox(height: 22),
+                          ],
+                          if (widget.showAccountActions) ...[
                           _FamilySharingCard(
                             onTap: () => context.go(RoutePaths.familySharing),
                           ),
-                          const SizedBox(height: 22),
-                          _SectionHeading(title: 'Memories'),
-                          const SizedBox(height: 10),
-                          _MemoriesCard(
-                            onOpenGallery: () =>
-                                _showToast('Memories is coming soon 🌙'),
-                          ),
-                          const SizedBox(height: 22),
-                          _SectionHeading(title: 'Twin Mode'),
-                          const SizedBox(height: 10),
-                          _TwinModeCard(onEnable: _enableTwinMode),
-                          const SizedBox(height: 26),
-                          AuthPrimaryButton(
-                            label: 'Edit Profile',
-                            isLoading: false,
-                            onPressed: () =>
-                                _showToast('Edit Profile is coming soon 🌙'),
-                          ),
                           const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: AuthOutlineButton(
-                                  label: 'Share Profile',
-                                  icon: Icons.ios_share_rounded,
-                                  accent: AuthPalette.powderBlue,
-                                  isLoading: false,
-                                  onPressed: () => _showToast(
-                                    'Share Profile is coming soon 🌙',
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: AuthOutlineButton(
-                                  label: 'Export PDF',
-                                  icon: Icons.picture_as_pdf_outlined,
-                                  accent: AuthPalette.mint,
-                                  isLoading: false,
-                                  onPressed: () => _showToast(
-                                    'Export PDF is coming soon 🌙',
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 18),
+                          const JoinCareTeamCard(),
+                          const SizedBox(height: 22),
                           AuthOutlineButton(
                             label: 'Log Out',
                             icon: Icons.logout_rounded,
@@ -483,6 +362,7 @@ class _BabyProfileScreenState extends State<BabyProfileScreen>
                             isLoading: _isLoggingOut,
                             onPressed: _isLoggingOut ? null : _logout,
                           ),
+                          ],
                         ],
                       ),
                     ),
@@ -621,38 +501,6 @@ class _DecorSpec {
   final double phase;
 }
 
-class _CircleIconButton extends StatelessWidget {
-  const _CircleIconButton({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: label,
-      child: Material(
-        color: Colors.white.withValues(alpha: 0.75),
-        shape: const CircleBorder(),
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.all(10),
-            child: Icon(icon, color: AuthPalette.textDark, size: 20),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _SectionHeading extends StatelessWidget {
   const _SectionHeading({required this.title});
 
@@ -680,7 +528,6 @@ class _ProfileHeroCard extends StatelessWidget {
     required this.ageLabel,
     required this.bornLabel,
     required this.healthStatus,
-    required this.parentName,
     required this.weight,
     required this.height,
     required this.headCircumference,
@@ -690,7 +537,6 @@ class _ProfileHeroCard extends StatelessWidget {
   final String ageLabel;
   final String bornLabel;
   final String healthStatus;
-  final String parentName;
   final String weight;
   final String height;
   final String headCircumference;
@@ -810,23 +656,13 @@ class _ProfileHeroCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              const Icon(
-                Icons.person_outline_rounded,
-                size: 15,
-                color: AuthPalette.textMuted,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                'Parent: $parentName',
-                style: GoogleFonts.nunito(
-                  fontSize: 12.5,
-                  color: AuthPalette.textMuted,
-                ),
-              ),
-            ],
+          const SizedBox(height: 12),
+          Text(
+            'Registration measurements',
+            style: GoogleFonts.nunito(
+              fontSize: 12,
+              color: AuthPalette.textMuted,
+            ),
           ),
           const SizedBox(height: 16),
           Container(
@@ -982,314 +818,6 @@ class _InfoDivider extends StatelessWidget {
   }
 }
 
-class _GrowthOverviewCard extends StatelessWidget {
-  const _GrowthOverviewCard({
-    required this.weightTrend,
-    required this.heightTrend,
-    required this.lastUpdatedLabel,
-  });
-
-  final List<double> weightTrend;
-  final List<double> heightTrend;
-  final String lastUpdatedLabel;
-
-  @override
-  Widget build(BuildContext context) {
-    return AuthCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            'Weight trend',
-            style: GoogleFonts.nunito(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: AuthPalette.textMuted,
-            ),
-          ),
-          const SizedBox(height: 10),
-          _MiniTrendChart(
-            values: weightTrend,
-            colors: const [AuthPalette.powderBlue, AuthPalette.mint],
-          ),
-          const SizedBox(height: 18),
-          Text(
-            'Height trend',
-            style: GoogleFonts.nunito(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: AuthPalette.textMuted,
-            ),
-          ),
-          const SizedBox(height: 10),
-          _MiniTrendChart(
-            values: heightTrend,
-            colors: const [AuthPalette.softCoral, AuthPalette.lavenderMist],
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              const Icon(
-                Icons.event_available_outlined,
-                size: 15,
-                color: AuthPalette.textMuted,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                lastUpdatedLabel,
-                style: GoogleFonts.nunito(
-                  fontSize: 12,
-                  color: AuthPalette.textMuted,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MiniTrendChart extends StatelessWidget {
-  const _MiniTrendChart({required this.values, required this.colors});
-
-  final List<double> values;
-  final List<Color> colors;
-
-  @override
-  Widget build(BuildContext context) {
-    final minValue = values.reduce(math.min);
-    final maxValue = values.reduce(math.max);
-    final range = (maxValue - minValue).clamp(0.1, double.infinity);
-
-    return SizedBox(
-      height: 54,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          for (var i = 0; i < values.length; i++) ...[
-            if (i > 0) const SizedBox(width: 8),
-            Expanded(
-              child: TweenAnimationBuilder<double>(
-                tween: Tween(begin: 0, end: (values[i] - minValue) / range),
-                duration: Duration(milliseconds: 500 + (i * 120)),
-                curve: Curves.easeOutCubic,
-                builder: (context, t, child) {
-                  return FractionallySizedBox(
-                    heightFactor: 0.2 + (t * 0.8),
-                    alignment: Alignment.bottomCenter,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(8),
-                        gradient: LinearGradient(
-                          begin: Alignment.bottomCenter,
-                          end: Alignment.topCenter,
-                          colors: colors,
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _CareSummaryGrid extends StatelessWidget {
-  const _CareSummaryGrid({
-    required this.avgSleep,
-    required this.feedingsToday,
-    required this.diapersToday,
-    required this.criesAnalyzed,
-  });
-
-  final String avgSleep;
-  final String feedingsToday;
-  final String diapersToday;
-  final String criesAnalyzed;
-
-  @override
-  Widget build(BuildContext context) {
-    final items = <(_CareSummaryItem, String)>[
-      (
-        const _CareSummaryItem(
-          icon: Icons.bedtime_rounded,
-          label: 'Avg Sleep',
-          color: AuthPalette.lavenderMist,
-        ),
-        avgSleep,
-      ),
-      (
-        const _CareSummaryItem(
-          icon: Icons.local_drink_rounded,
-          label: 'Feedings Today',
-          color: AuthPalette.powderBlue,
-        ),
-        feedingsToday,
-      ),
-      (
-        const _CareSummaryItem(
-          icon: Icons.child_care_rounded,
-          label: 'Diapers Today',
-          color: AuthPalette.mint,
-        ),
-        diapersToday,
-      ),
-      (
-        const _CareSummaryItem(
-          icon: Icons.graphic_eq_rounded,
-          label: 'Cries Analyzed',
-          color: AuthPalette.softCoral,
-        ),
-        criesAnalyzed,
-      ),
-    ];
-
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: items.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 12,
-        childAspectRatio: 1.7,
-      ),
-      itemBuilder: (context, index) {
-        final (item, value) = items[index];
-        return Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.9),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: AuthPalette.lavenderMist.withValues(alpha: 0.4),
-            ),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: item.color.withValues(alpha: 0.3),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(item.icon, size: 18, color: AuthPalette.textDark),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      value,
-                      style: GoogleFonts.quicksand(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                        color: AuthPalette.textDark,
-                      ),
-                    ),
-                    Text(
-                      item.label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.nunito(
-                        fontSize: 10.5,
-                        color: AuthPalette.textMuted,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _CareSummaryItem {
-  const _CareSummaryItem({
-    required this.icon,
-    required this.label,
-    required this.color,
-  });
-
-  final IconData icon;
-  final String label;
-  final Color color;
-}
-
-class _MedicalRow extends StatelessWidget {
-  const _MedicalRow({
-    required this.icon,
-    required this.color,
-    required this.title,
-    required this.detail,
-    this.isLast = false,
-  });
-
-  final IconData icon;
-  final Color color;
-  final String title;
-  final String detail;
-  final bool isLast;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.only(bottom: isLast ? 0 : 14, top: 2),
-      child: Row(
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.3),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, size: 18, color: AuthPalette.textDark),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: GoogleFonts.nunito(
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w700,
-                    color: AuthPalette.textDark,
-                  ),
-                ),
-                Text(
-                  detail,
-                  style: GoogleFonts.nunito(
-                    fontSize: 12,
-                    color: AuthPalette.textMuted,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Entry point into the Family Sharing feature (SRS Section 10.20),
-/// reusing [AuthCard]'s exact radius/shadow/spacing via composition so it
-/// matches every other card on this screen, with a [Material]+[InkWell]
-/// wrapper added purely for the tap ripple.
 class _FamilySharingCard extends StatelessWidget {
   const _FamilySharingCard({required this.onTap});
 
@@ -1394,148 +922,6 @@ class _FamilySharingCard extends StatelessWidget {
   }
 }
 
-class _MemoriesCard extends StatelessWidget {
-  const _MemoriesCard({required this.onOpenGallery});
-
-  final VoidCallback onOpenGallery;
-
-  static const _accents = [
-    AuthPalette.blushPink,
-    AuthPalette.powderBlue,
-    AuthPalette.mint,
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return AuthCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              for (var i = 0; i < _accents.length; i++) ...[
-                if (i > 0) const SizedBox(width: 10),
-                Expanded(
-                  child: AspectRatio(
-                    aspectRatio: 1,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: _accents[i].withValues(alpha: 0.35),
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                      child: const Icon(
-                        Icons.photo_rounded,
-                        color: AuthPalette.textDark,
-                        size: 26,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-          const SizedBox(height: 16),
-          AuthOutlineButton(
-            label: 'Open Memories',
-            icon: Icons.photo_library_outlined,
-            accent: AuthPalette.lavenderMist,
-            isLoading: false,
-            onPressed: onOpenGallery,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _TwinModeCard extends StatelessWidget {
-  const _TwinModeCard({required this.onEnable});
-
-  final VoidCallback onEnable;
-
-  @override
-  Widget build(BuildContext context) {
-    return AuthCard(
-      child: Column(
-        children: [
-          SizedBox(
-            height: 64,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Container(
-                    width: 56,
-                    height: 56,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: AuthPalette.softCoral.withValues(alpha: 0.32),
-                    ),
-                    child: const Icon(
-                      Icons.child_friendly_rounded,
-                      color: AuthPalette.softCoral,
-                      size: 28,
-                    ),
-                  ),
-                ),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: Container(
-                    width: 56,
-                    height: 56,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: AuthPalette.lavenderMist.withValues(alpha: 0.18),
-                      border: Border.all(
-                        color: AuthPalette.lavenderMist.withValues(alpha: 0.6),
-                        width: 1.5,
-                        style: BorderStyle.solid,
-                      ),
-                    ),
-                    child: Icon(
-                      Icons.child_friendly_rounded,
-                      color: AuthPalette.lavenderMist.withValues(alpha: 0.7),
-                      size: 28,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Twin mode not enabled',
-            style: GoogleFonts.quicksand(
-              fontSize: 15.5,
-              fontWeight: FontWeight.w700,
-              color: AuthPalette.textDark,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Caring for twins? Turn on Twin Mode to track a sibling alongside ${BabyProfileStore.name}.',
-            textAlign: TextAlign.center,
-            style: GoogleFonts.nunito(
-              fontSize: 12.5,
-              color: AuthPalette.textMuted,
-              height: 1.4,
-            ),
-          ),
-          const SizedBox(height: 14),
-          AuthOutlineButton(
-            label: 'Enable Twin Mode',
-            icon: Icons.diversity_3_outlined,
-            accent: AuthPalette.softCoral,
-            isLoading: false,
-            onPressed: onEnable,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 const _monthNames = <String>[
   'January',
   'February',
@@ -1555,16 +941,16 @@ String _formatEditDate(DateTime date) =>
     '${date.day} ${_monthNames[date.month - 1]} ${date.year}';
 
 /// Full-screen Edit Baby Profile page, reached from the Baby Profile
-/// screen's pen icon via `Navigator.push`. Reuses the same pastel design
+/// screen's Edit Profile button via `Navigator.push`. Reuses the same pastel design
 /// language and shared background components already established on this
 /// screen (including the private [_ProfileFloatingDecor] defined above).
 ///
-/// Fields are pre-filled with the profile's current sample values but kept
-/// only in local, temporary widget state — there is no backend, Firebase,
-/// or database wiring. Save Changes shows a demo confirmation snackbar and
-/// pops back to the profile screen without persisting anything.
+/// The original baby ID is frozen when opened. Save persists through the
+/// authenticated backend without changing another active baby's details.
 class _EditBabyProfileScreen extends StatefulWidget {
   const _EditBabyProfileScreen({
+    this.api,
+    required this.baby,
     required this.initialName,
     required this.initialDateOfBirth,
     required this.initialGender,
@@ -1578,7 +964,9 @@ class _EditBabyProfileScreen extends StatefulWidget {
   });
 
   final String initialName;
-  final DateTime initialDateOfBirth;
+  final Map<String, dynamic> baby;
+  final Dio? api;
+  final DateTime? initialDateOfBirth;
   final String initialGender;
   final String initialWeight;
   final String initialHeight;
@@ -1617,6 +1005,7 @@ class _EditBabyProfileScreenState extends State<_EditBabyProfileScreen> {
 
   static const _genderOptions = <String>['Girl', 'Boy', 'Other'];
   static const _bloodGroupOptions = <String>[
+    'Not recorded',
     'O+',
     'O-',
     'A+',
@@ -1634,8 +1023,10 @@ class _EditBabyProfileScreenState extends State<_EditBabyProfileScreen> {
   late final TextEditingController _allergiesController;
   late final TextEditingController _pediatricianController;
   late final TextEditingController _hospitalController;
+  late final TextEditingController _parentPhoneController;
+  late final TextEditingController _doctorPhoneController;
 
-  late DateTime _dateOfBirth;
+  late DateTime? _dateOfBirth;
   late String _gender;
   late String _bloodGroup;
 
@@ -1643,18 +1034,37 @@ class _EditBabyProfileScreenState extends State<_EditBabyProfileScreen> {
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.initialName);
-    _weightController = TextEditingController(text: widget.initialWeight);
-    _heightController = TextEditingController(text: widget.initialHeight);
+    String recorded(String value) => value == 'Not recorded' ? '' : value;
+    _weightController = TextEditingController(
+      text: recorded(widget.initialWeight).split(' ').first,
+    );
+    _heightController = TextEditingController(
+      text: recorded(widget.initialHeight).split(' ').first,
+    );
     _headCircumferenceController = TextEditingController(
-      text: widget.initialHeadCircumference,
+      text: recorded(widget.initialHeadCircumference).split(' ').first,
     );
-    _allergiesController = TextEditingController(text: widget.initialAllergies);
+    _allergiesController = TextEditingController(
+      text: recorded(widget.initialAllergies),
+    );
     _pediatricianController = TextEditingController(
-      text: widget.initialPediatrician,
+      text: recorded(widget.initialPediatrician),
     );
-    _hospitalController = TextEditingController(text: widget.initialHospital);
+    _hospitalController = TextEditingController(
+      text: recorded(widget.initialHospital),
+    );
+    _parentPhoneController = TextEditingController(
+      text: widget.baby['parent_phone'] as String? ?? '',
+    );
+    _doctorPhoneController = TextEditingController(
+      text: widget.baby['pediatrician_phone'] as String? ?? '',
+    );
     _dateOfBirth = widget.initialDateOfBirth;
-    _gender = widget.initialGender;
+    _gender = switch (widget.initialGender.toLowerCase()) {
+      'girl' || 'female' => 'Girl',
+      'boy' || 'male' => 'Boy',
+      _ => 'Other',
+    };
     _bloodGroup = _bloodGroupOptions.contains(widget.initialBloodGroup)
         ? widget.initialBloodGroup
         : _bloodGroupOptions.first;
@@ -1669,6 +1079,8 @@ class _EditBabyProfileScreenState extends State<_EditBabyProfileScreen> {
     _allergiesController.dispose();
     _pediatricianController.dispose();
     _hospitalController.dispose();
+    _parentPhoneController.dispose();
+    _doctorPhoneController.dispose();
     super.dispose();
   }
 
@@ -1697,8 +1109,12 @@ class _EditBabyProfileScreenState extends State<_EditBabyProfileScreen> {
     final now = DateTime.now();
     final picked = await showDatePicker(
       context: context,
-      initialDate: _dateOfBirth,
-      firstDate: DateTime(now.year - 10),
+      initialDate: _dateOfBirth == null || _dateOfBirth!.isAfter(now)
+          ? now
+          : _dateOfBirth!,
+      firstDate: _dateOfBirth != null && _dateOfBirth!.year < now.year - 10
+          ? _dateOfBirth!
+          : DateTime(now.year - 10),
       lastDate: now,
       builder: (context, child) {
         return Theme(
@@ -1725,26 +1141,44 @@ class _EditBabyProfileScreenState extends State<_EditBabyProfileScreen> {
 
   Future<void> _handleSave() async {
     if (_saving) return;
-    final id = BabyProfileStore.id;
-    final user = FirebaseAuthService().currentUser;
-    if (id == null || user == null) return;
+    final id = widget.baby['id'] as String?;
+    if (id == null) return;
+    if (_nameController.text.trim().isEmpty) {
+      _showToast('Enter the baby\'s name.');
+      return;
+    }
+    final phonePattern = RegExp(r'^[+0-9() .-]{0,32}$');
+    if (!phonePattern.hasMatch(_parentPhoneController.text.trim()) ||
+        !phonePattern.hasMatch(_doctorPhoneController.text.trim())) {
+      _showToast('Enter a valid contact number (up to 32 characters).');
+      return;
+    }
     setState(() => _saving = true);
     double? measurement(TextEditingController controller) =>
         double.tryParse(controller.text.trim().split(' ').first);
     try {
-      final dio = Dio(BaseOptions(baseUrl: AppConfig.apiBaseUrl));
-      dio.options.headers['Authorization'] =
-          'Bearer ${await user.getIdToken()}';
+      final dio =
+          widget.api ?? careDio(BaseOptions(baseUrl: AppConfig.apiBaseUrl));
+      if (widget.api == null) {
+        final user = FirebaseAuthService().currentUser;
+        if (user == null) throw StateError('Please sign in again.');
+        dio.options.headers['Authorization'] =
+            'Bearer ${await user.getIdToken()}';
+      }
       final response = await dio.patch<Map<String, dynamic>>(
         '/babies/$id',
         data: {
           if (_photoData != null) 'photo_data': _photoData,
           'name': _nameController.text.trim(),
-          'birth_date': _dateOfBirth.toIso8601String().split('T').first,
-          'gender': _gender.toLowerCase() == 'other'
-              ? 'unspecified'
-              : _gender.toLowerCase(),
-          'blood_group': _bloodGroup,
+          'birth_date': _dateOfBirth?.toIso8601String().split('T').first,
+          'gender': _gender == 'Girl'
+              ? 'female'
+              : _gender == 'Boy'
+              ? 'male'
+              : 'unspecified',
+          'parent_phone': _parentPhoneController.text.trim(),
+          'pediatrician_phone': _doctorPhoneController.text.trim(),
+          'blood_group': _bloodGroup == 'Not recorded' ? null : _bloodGroup,
           'birth_weight_kg': measurement(_weightController),
           'birth_length_cm': measurement(_heightController),
           'head_circumference_cm': measurement(_headCircumferenceController),
@@ -1754,7 +1188,10 @@ class _EditBabyProfileScreenState extends State<_EditBabyProfileScreen> {
         },
       );
       if (!mounted) return;
-      final data = Map<String, dynamic>.from(response.data!['data'] as Map);
+      final data = {
+        ...Map<String, dynamic>.from(response.data!['data'] as Map),
+        'access_role': widget.baby['access_role'] ?? 'owner',
+      };
       BabyProfileStore.babies = BabyProfileStore.babies
           .map((baby) => baby['id'] == id ? data : baby)
           .toList();
@@ -1812,7 +1249,7 @@ class _EditBabyProfileScreenState extends State<_EditBabyProfileScreen> {
                               BabyAvatar(
                                 size: 84,
                                 profile: {
-                                  ...BabyProfileStore.data,
+                                  ...widget.baby,
                                   if (_photoData != null)
                                     'photo_data': _photoData,
                                 },
@@ -1839,7 +1276,9 @@ class _EditBabyProfileScreenState extends State<_EditBabyProfileScreen> {
                             const SizedBox(height: 14),
                             _DatePickerField(
                               label: 'Date of Birth',
-                              value: _formatEditDate(_dateOfBirth),
+                              value: _dateOfBirth == null
+                                  ? 'Not recorded'
+                                  : _formatEditDate(_dateOfBirth!),
                               onTap: _pickDateOfBirth,
                             ),
                             const SizedBox(height: 16),
@@ -1907,6 +1346,7 @@ class _EditBabyProfileScreenState extends State<_EditBabyProfileScreen> {
                             ),
                             const SizedBox(height: 8),
                             DropdownButtonFormField<String>(
+                              isExpanded: true,
                               initialValue: _bloodGroup,
                               icon: const Icon(
                                 Icons.expand_more_rounded,
@@ -1950,6 +1390,16 @@ class _EditBabyProfileScreenState extends State<_EditBabyProfileScreen> {
                             ),
                             const SizedBox(height: 14),
                             AuthTextField(
+                              controller: _parentPhoneController,
+                              label: 'Parent contact (optional)',
+                              hintText: '+91 phone number',
+                              prefixIcon: Icons.phone_outlined,
+                              keyboardType: TextInputType.phone,
+                              validator: (_) => null,
+                              enabled: !_saving,
+                            ),
+                            const SizedBox(height: 14),
+                            AuthTextField(
                               controller: _pediatricianController,
                               label: 'Pediatrician',
                               hintText: "e.g. Dr. Meera Nair",
@@ -1957,6 +1407,16 @@ class _EditBabyProfileScreenState extends State<_EditBabyProfileScreen> {
                               validator: (_) => null,
                               enabled: true,
                               textCapitalization: TextCapitalization.words,
+                            ),
+                            const SizedBox(height: 14),
+                            AuthTextField(
+                              controller: _doctorPhoneController,
+                              label: 'Pediatrician contact (optional)',
+                              hintText: 'Clinic phone number',
+                              prefixIcon: Icons.phone_outlined,
+                              keyboardType: TextInputType.phone,
+                              validator: (_) => null,
+                              enabled: !_saving,
                             ),
                             const SizedBox(height: 14),
                             AuthTextField(
@@ -2000,71 +1460,6 @@ class _EditBabyProfileScreenState extends State<_EditBabyProfileScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _AvatarPicker extends StatelessWidget {
-  const _AvatarPicker({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: "Change baby's photo",
-      child: InkWell(
-        borderRadius: BorderRadius.circular(56),
-        onTap: onTap,
-        child: SizedBox(
-          width: 104,
-          height: 104,
-          child: Stack(
-            children: [
-              Container(
-                width: 104,
-                height: 104,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withValues(alpha: 0.85),
-                  border: Border.all(color: Colors.white, width: 3),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AuthPalette.softCoral.withValues(alpha: 0.3),
-                      blurRadius: 16,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.child_friendly_rounded,
-                  color: AuthPalette.softCoral,
-                  size: 50,
-                ),
-              ),
-              Positioned(
-                right: 0,
-                bottom: 0,
-                child: Container(
-                  width: 34,
-                  height: 34,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: AuthPalette.softCoral,
-                    border: Border.all(color: Colors.white, width: 2.5),
-                  ),
-                  child: const Icon(
-                    Icons.photo_camera_rounded,
-                    color: Colors.white,
-                    size: 16,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

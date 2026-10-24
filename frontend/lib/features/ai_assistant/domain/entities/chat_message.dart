@@ -12,10 +12,14 @@ class ChatMessage {
     required this.text,
     required this.sender,
     required this.timestamp,
+    this.online = false,
+    this.failed = false,
   });
 
   final String id;
   final String text;
   final ChatSender sender;
   final DateTime timestamp;
+  final bool online;
+  final bool failed;
 }

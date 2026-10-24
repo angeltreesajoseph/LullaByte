@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import '../../../family_sharing/application/shared_care_connection.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -9,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../../core/router/route_paths.dart';
 import '../../../../core/auth/firebase_auth_service.dart';
+import '../../../../core/auth/login_error_message.dart';
 import 'forgot_password_screen.dart';
 
 /// Log In screen (SRS Section 10.1.2, Login).
@@ -32,7 +34,8 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin {
+class _LoginScreenState extends State<LoginScreen>
+    with TickerProviderStateMixin {
   static const _rememberedEmailKey = 'remembered_login_email';
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
@@ -60,11 +63,17 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       vsync: this,
       duration: const Duration(milliseconds: 600),
     );
-    _entranceFade = CurvedAnimation(parent: _entranceController, curve: Curves.easeOut);
-    _entranceSlide = Tween<Offset>(
-      begin: const Offset(0, 0.05),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _entranceController, curve: Curves.easeOutCubic));
+    _entranceFade = CurvedAnimation(
+      parent: _entranceController,
+      curve: Curves.easeOut,
+    );
+    _entranceSlide =
+        Tween<Offset>(begin: const Offset(0, 0.05), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _entranceController,
+            curve: Curves.easeOutCubic,
+          ),
+        );
     _entranceController.forward();
 
     // Gentle, continuous "breathing" float for the moon + cloud illustration.
@@ -146,18 +155,34 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       // data/domain layer integration (AuthRepository is not yet wired to
       // this screen). Field-level validation above is fully functional.
       if (method != _LoginMethod.email) {
-        throw FirebaseAuthException(code: 'unsupported-provider', message: 'Email sign-in is currently available.');
+        throw FirebaseAuthException(
+          code: 'unsupported-provider',
+          message: 'Email sign-in is currently available.',
+        );
       }
-      await FirebaseAuthService().signIn(_emailController.text, _passwordController.text);
+      await FirebaseAuthService().signIn(
+        _emailController.text,
+        _passwordController.text,
+      );
       final preferences = await SharedPreferences.getInstance();
       if (_rememberMe) {
-        await preferences.setString(_rememberedEmailKey, _emailController.text.trim());
+        await preferences.setString(
+          _rememberedEmailKey,
+          _emailController.text.trim(),
+        );
       } else {
         await preferences.remove(_rememberedEmailKey);
       }
       if (!mounted) return;
       TextInput.finishAutofillContext(shouldSave: true);
-      context.go(RoutePaths.dashboard);
+      context.go(
+        PendingCareInvitation.id == null
+            ? RoutePaths.dashboard
+            : RoutePaths.familySharing,
+      );
+    } on FirebaseAuthException catch (error) {
+      if (!mounted) return;
+      setState(() => _errorMessage = loginErrorMessage(error.code));
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -196,7 +221,9 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
           SafeArea(
             child: Column(
               children: [
-                _BackButton(onPressed: context.canPop() ? () => context.pop() : null),
+                _BackButton(
+                  onPressed: context.canPop() ? () => context.pop() : null,
+                ),
                 Expanded(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
@@ -208,8 +235,13 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                             AnimatedBuilder(
                               animation: _floatController,
                               builder: (context, child) {
-                                final dy = math.sin(_floatController.value * math.pi) * 6;
-                                return Transform.translate(offset: Offset(0, -dy), child: child);
+                                final dy =
+                                    math.sin(_floatController.value * math.pi) *
+                                    6;
+                                return Transform.translate(
+                                  offset: Offset(0, -dy),
+                                  child: child,
+                                );
                               },
                               child: const _MoonCloudIllustration(),
                             ),
@@ -251,7 +283,10 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                                   onValidateEmail: _validateEmail,
                                   onValidatePassword: _validatePassword,
                                   onToggleObscure: () {
-                                    setState(() => _obscurePassword = !_obscurePassword);
+                                    setState(
+                                      () =>
+                                          _obscurePassword = !_obscurePassword,
+                                    );
                                   },
                                   onToggleRememberMe: (value) {
                                     _setRememberMe(value);
@@ -327,16 +362,86 @@ class _FloatingDecor extends StatelessWidget {
   final Animation<double> twinkle;
 
   static const _specs = <_DecorSpec>[
-    _DecorSpec(icon: Icons.star_rounded, top: 0.08, left: 0.10, size: 16, color: _Palette.softCoral, phase: 0.0),
-    _DecorSpec(icon: Icons.favorite_rounded, top: 0.14, left: 0.82, size: 14, color: _Palette.mint, phase: 0.3),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.22, left: 0.88, size: 10, color: _Palette.lavenderMist, phase: 0.6),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.05, left: 0.55, size: 12, color: _Palette.powderBlue, phase: 0.15),
-    _DecorSpec(icon: Icons.favorite_rounded, top: 0.30, left: 0.06, size: 12, color: _Palette.softCoral, phase: 0.45),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.40, left: 0.92, size: 14, color: _Palette.mint, phase: 0.75),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.60, left: 0.04, size: 10, color: _Palette.lavenderMist, phase: 0.2),
-    _DecorSpec(icon: Icons.favorite_rounded, top: 0.75, left: 0.90, size: 12, color: _Palette.powderBlue, phase: 0.5),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.85, left: 0.12, size: 14, color: _Palette.softCoral, phase: 0.65),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.92, left: 0.60, size: 10, color: _Palette.mint, phase: 0.35),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.08,
+      left: 0.10,
+      size: 16,
+      color: _Palette.softCoral,
+      phase: 0.0,
+    ),
+    _DecorSpec(
+      icon: Icons.favorite_rounded,
+      top: 0.14,
+      left: 0.82,
+      size: 14,
+      color: _Palette.mint,
+      phase: 0.3,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.22,
+      left: 0.88,
+      size: 10,
+      color: _Palette.lavenderMist,
+      phase: 0.6,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.05,
+      left: 0.55,
+      size: 12,
+      color: _Palette.powderBlue,
+      phase: 0.15,
+    ),
+    _DecorSpec(
+      icon: Icons.favorite_rounded,
+      top: 0.30,
+      left: 0.06,
+      size: 12,
+      color: _Palette.softCoral,
+      phase: 0.45,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.40,
+      left: 0.92,
+      size: 14,
+      color: _Palette.mint,
+      phase: 0.75,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.60,
+      left: 0.04,
+      size: 10,
+      color: _Palette.lavenderMist,
+      phase: 0.2,
+    ),
+    _DecorSpec(
+      icon: Icons.favorite_rounded,
+      top: 0.75,
+      left: 0.90,
+      size: 12,
+      color: _Palette.powderBlue,
+      phase: 0.5,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.85,
+      left: 0.12,
+      size: 14,
+      color: _Palette.softCoral,
+      phase: 0.65,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.92,
+      left: 0.60,
+      size: 10,
+      color: _Palette.mint,
+      phase: 0.35,
+    ),
   ];
 
   @override
@@ -352,7 +457,10 @@ class _FloatingDecor extends StatelessWidget {
                 child: AnimatedBuilder(
                   animation: twinkle,
                   builder: (context, child) {
-                    final t = (math.sin((twinkle.value + spec.phase) * math.pi * 2) + 1) / 2;
+                    final t =
+                        (math.sin((twinkle.value + spec.phase) * math.pi * 2) +
+                            1) /
+                        2;
                     return Opacity(opacity: 0.10 + (t * 0.16), child: child);
                   },
                   child: Icon(spec.icon, size: spec.size, color: spec.color),
@@ -402,7 +510,10 @@ class _BackButton extends StatelessWidget {
           shape: const CircleBorder(),
           child: IconButton(
             onPressed: onPressed,
-            icon: const Icon(Icons.arrow_back_rounded, color: _Palette.textDark),
+            icon: const Icon(
+              Icons.arrow_back_rounded,
+              color: _Palette.textDark,
+            ),
             tooltip: 'Back',
           ),
         ),
@@ -463,9 +574,21 @@ class _MoonCloudIllustration extends StatelessWidget {
               ),
             ),
           ),
-          const Positioned(top: 6, right: 46, child: _SleepZ(size: 14, opacity: 0.55)),
-          const Positioned(top: -8, right: 30, child: _SleepZ(size: 18, opacity: 0.7)),
-          const Positioned(top: -22, right: 12, child: _SleepZ(size: 22, opacity: 0.9)),
+          const Positioned(
+            top: 6,
+            right: 46,
+            child: _SleepZ(size: 14, opacity: 0.55),
+          ),
+          const Positioned(
+            top: -8,
+            right: 30,
+            child: _SleepZ(size: 18, opacity: 0.7),
+          ),
+          const Positioned(
+            top: -22,
+            right: 12,
+            child: _SleepZ(size: 22, opacity: 0.9),
+          ),
         ],
       ),
     );
@@ -496,7 +619,11 @@ class _SleepZ extends StatelessWidget {
 
 /// A fluffy cloud silhouette built from overlapping soft-edged circles.
 class _CloudShape extends StatelessWidget {
-  const _CloudShape({required this.color, required this.width, required this.height});
+  const _CloudShape({
+    required this.color,
+    required this.width,
+    required this.height,
+  });
 
   final Color color;
   final double width;
@@ -515,12 +642,27 @@ class _CloudShape extends StatelessWidget {
             child: Container(
               width: width,
               height: height * 0.55,
-              decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(height)),
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(height),
+              ),
             ),
           ),
-          Positioned(bottom: height * 0.18, left: width * 0.04, child: _puff(width * 0.42, color)),
-          Positioned(bottom: height * 0.30, left: width * 0.26, child: _puff(width * 0.5, color)),
-          Positioned(bottom: height * 0.20, right: width * 0.06, child: _puff(width * 0.4, color)),
+          Positioned(
+            bottom: height * 0.18,
+            left: width * 0.04,
+            child: _puff(width * 0.42, color),
+          ),
+          Positioned(
+            bottom: height * 0.30,
+            left: width * 0.26,
+            child: _puff(width * 0.5, color),
+          ),
+          Positioned(
+            bottom: height * 0.20,
+            right: width * 0.06,
+            child: _puff(width * 0.4, color),
+          ),
         ],
       ),
     );
@@ -538,7 +680,10 @@ class _CloudShape extends StatelessWidget {
 /// Paints a sleepy crescent moon: one circle subtracted from another,
 /// plus gently closed eyes and a small contented smile.
 class _CrescentMoonPainter extends CustomPainter {
-  const _CrescentMoonPainter({required this.moonColor, required this.faceColor});
+  const _CrescentMoonPainter({
+    required this.moonColor,
+    required this.faceColor,
+  });
 
   final Color moonColor;
   final Color faceColor;
@@ -546,10 +691,16 @@ class _CrescentMoonPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final moonPaint = Paint()..color = moonColor;
-    final fullMoon = Path()..addOval(Rect.fromLTWH(0, 0, size.width, size.height));
+    final fullMoon = Path()
+      ..addOval(Rect.fromLTWH(0, 0, size.width, size.height));
     final cutout = Path()
       ..addOval(
-        Rect.fromLTWH(size.width * 0.30, -size.height * 0.06, size.width * 0.98, size.height * 1.12),
+        Rect.fromLTWH(
+          size.width * 0.30,
+          -size.height * 0.06,
+          size.width * 0.98,
+          size.height * 1.12,
+        ),
       );
     final crescent = Path.combine(PathOperation.difference, fullMoon, cutout);
     canvas.drawPath(crescent, moonPaint);
@@ -567,22 +718,38 @@ class _CrescentMoonPainter extends CustomPainter {
       final dx = size.width * eyeSpacing * dir;
       final path = Path()
         ..moveTo(cx + dx - size.width * 0.05, eyeY)
-        ..quadraticBezierTo(cx + dx, eyeY + size.height * 0.05, cx + dx + size.width * 0.05, eyeY);
+        ..quadraticBezierTo(
+          cx + dx,
+          eyeY + size.height * 0.05,
+          cx + dx + size.width * 0.05,
+          eyeY,
+        );
       canvas.drawPath(path, facePaint);
     }
 
     final smile = Path()
       ..moveTo(cx - size.width * 0.06, size.height * 0.60)
-      ..quadraticBezierTo(cx, size.height * 0.65, cx + size.width * 0.06, size.height * 0.60);
+      ..quadraticBezierTo(
+        cx,
+        size.height * 0.65,
+        cx + size.width * 0.06,
+        size.height * 0.60,
+      );
     canvas.drawPath(smile, facePaint);
 
-    final blushPaint = Paint()..color = _Palette.softCoral.withValues(alpha: 0.35);
-    canvas.drawCircle(Offset(cx - size.width * 0.16, size.height * 0.56), size.width * 0.045, blushPaint);
+    final blushPaint = Paint()
+      ..color = _Palette.softCoral.withValues(alpha: 0.35);
+    canvas.drawCircle(
+      Offset(cx - size.width * 0.16, size.height * 0.56),
+      size.width * 0.045,
+      blushPaint,
+    );
   }
 
   @override
   bool shouldRepaint(covariant _CrescentMoonPainter oldDelegate) {
-    return oldDelegate.moonColor != moonColor || oldDelegate.faceColor != faceColor;
+    return oldDelegate.moonColor != moonColor ||
+        oldDelegate.faceColor != faceColor;
   }
 }
 
@@ -650,87 +817,98 @@ class _LoginCard extends StatelessWidget {
         child: Form(
           key: formKey,
           child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (errorMessage != null) ...[
-              _ErrorBanner(message: errorMessage!),
-              const SizedBox(height: 16),
-            ],
-            _PastelTextField(
-              controller: emailController,
-              label: 'Email',
-              hintText: 'you@example.com',
-              keyboardType: TextInputType.emailAddress,
-              prefixIcon: Icons.mail_outline_rounded,
-              validator: onValidateEmail,
-              enabled: !isSubmitting,
-            ),
-            const SizedBox(height: 14),
-            _PastelPasswordField(
-              controller: passwordController,
-              focusNode: passwordFocusNode,
-              obscureText: obscurePassword,
-              enabled: !isSubmitting,
-              validator: onValidatePassword,
-              onToggleObscure: onToggleObscure,
-              onSubmitted: (_) => onSubmitEmailLogin(),
-            ),
-            const SizedBox(height: 6),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                _RememberMeToggle(
-                  value: rememberMe,
-                  enabled: !isSubmitting,
-                  onChanged: onToggleRememberMe,
-                ),
-                _PastelTextLink(
-                  label: 'Forgot Password?',
-                  onPressed: isSubmitting ? null : onForgotPassword,
-                ),
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (errorMessage != null) ...[
+                _ErrorBanner(message: errorMessage!),
+                const SizedBox(height: 16),
               ],
-            ),
-            const SizedBox(height: 10),
-            _PastelPrimaryButton(
-              label: 'Log In',
-              isLoading: isSubmitting && activeMethod == _LoginMethod.email,
-              onPressed: isSubmitting ? null : onSubmitEmailLogin,
-            ),
-            const SizedBox(height: 22),
-            Row(
-              children: [
-                Expanded(child: Divider(color: _Palette.lavenderMist.withValues(alpha: 0.6))),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Text(
-                    'OR',
+              _PastelTextField(
+                controller: emailController,
+                label: 'Email',
+                hintText: 'you@example.com',
+                keyboardType: TextInputType.emailAddress,
+                prefixIcon: Icons.mail_outline_rounded,
+                validator: onValidateEmail,
+                enabled: !isSubmitting,
+              ),
+              const SizedBox(height: 14),
+              _PastelPasswordField(
+                controller: passwordController,
+                focusNode: passwordFocusNode,
+                obscureText: obscurePassword,
+                enabled: !isSubmitting,
+                validator: onValidatePassword,
+                onToggleObscure: onToggleObscure,
+                onSubmitted: (_) => onSubmitEmailLogin(),
+              ),
+              const SizedBox(height: 6),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _RememberMeToggle(
+                    value: rememberMe,
+                    enabled: !isSubmitting,
+                    onChanged: onToggleRememberMe,
+                  ),
+                  _PastelTextLink(
+                    label: 'Forgot Password?',
+                    onPressed: isSubmitting ? null : onForgotPassword,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              _PastelPrimaryButton(
+                label: 'Log In',
+                isLoading: isSubmitting && activeMethod == _LoginMethod.email,
+                onPressed: isSubmitting ? null : onSubmitEmailLogin,
+              ),
+              const SizedBox(height: 22),
+              Row(
+                children: [
+                  Expanded(
+                    child: Divider(
+                      color: _Palette.lavenderMist.withValues(alpha: 0.6),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Text(
+                      'OR',
+                      style: GoogleFonts.nunito(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.2,
+                        color: _Palette.textMuted,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Divider(
+                      color: _Palette.lavenderMist.withValues(alpha: 0.6),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    "Don't have an account? ",
                     style: GoogleFonts.nunito(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1.2,
+                      fontSize: 13.5,
                       color: _Palette.textMuted,
                     ),
                   ),
-                ),
-                Expanded(child: Divider(color: _Palette.lavenderMist.withValues(alpha: 0.6))),
-              ],
-            ),
-            const SizedBox(height: 18),
-            const SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  "Don't have an account? ",
-                  style: GoogleFonts.nunito(fontSize: 13.5, color: _Palette.textMuted),
-                ),
-                _PastelTextLink(
-                  label: 'Register',
-                  bold: true,
-                  onPressed: isSubmitting ? null : onRegister,
-                ),
-              ],
-            ),
+                  _PastelTextLink(
+                    label: 'Register',
+                    bold: true,
+                    onPressed: isSubmitting ? null : onRegister,
+                  ),
+                ],
+              ),
             ],
           ),
         ),
@@ -740,7 +918,11 @@ class _LoginCard extends StatelessWidget {
 }
 
 class _RememberMeToggle extends StatelessWidget {
-  const _RememberMeToggle({required this.value, required this.enabled, required this.onChanged});
+  const _RememberMeToggle({
+    required this.value,
+    required this.enabled,
+    required this.onChanged,
+  });
 
   final bool value;
   final bool enabled;
@@ -767,14 +949,21 @@ class _RememberMeToggle extends StatelessWidget {
                   onChanged: enabled ? (v) => onChanged(v ?? false) : null,
                   activeColor: _Palette.mint,
                   checkColor: _Palette.textDark,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                  side: BorderSide(color: _Palette.textMuted.withValues(alpha: 0.5)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  side: BorderSide(
+                    color: _Palette.textMuted.withValues(alpha: 0.5),
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
               Text(
                 'Remember Me',
-                style: GoogleFonts.nunito(fontSize: 13.5, color: _Palette.textDark),
+                style: GoogleFonts.nunito(
+                  fontSize: 13.5,
+                  color: _Palette.textDark,
+                ),
               ),
             ],
           ),
@@ -785,7 +974,11 @@ class _RememberMeToggle extends StatelessWidget {
 }
 
 class _PastelTextLink extends StatelessWidget {
-  const _PastelTextLink({required this.label, required this.onPressed, this.bold = false});
+  const _PastelTextLink({
+    required this.label,
+    required this.onPressed,
+    this.bold = false,
+  });
 
   final String label;
   final VoidCallback? onPressed;
@@ -829,7 +1022,10 @@ InputDecoration _pastelDecoration({
     labelText: label,
     hintText: hint,
     labelStyle: GoogleFonts.nunito(color: _Palette.textMuted, fontSize: 14),
-    hintStyle: GoogleFonts.nunito(color: _Palette.textMuted.withValues(alpha: 0.6), fontSize: 14),
+    hintStyle: GoogleFonts.nunito(
+      color: _Palette.textMuted.withValues(alpha: 0.6),
+      fontSize: 14,
+    ),
     prefixIcon: Icon(prefixIcon, color: _Palette.textMuted),
     suffixIcon: suffixIcon,
     filled: true,
@@ -837,7 +1033,9 @@ InputDecoration _pastelDecoration({
     contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
     border: border,
     enabledBorder: border.copyWith(
-      borderSide: BorderSide(color: _Palette.lavenderMist.withValues(alpha: 0.7)),
+      borderSide: BorderSide(
+        color: _Palette.lavenderMist.withValues(alpha: 0.7),
+      ),
     ),
     focusedBorder: border.copyWith(
       borderSide: const BorderSide(color: _Palette.softCoral, width: 2),
@@ -848,7 +1046,10 @@ InputDecoration _pastelDecoration({
     focusedErrorBorder: border.copyWith(
       borderSide: const BorderSide(color: Color(0xFFE0645B), width: 2),
     ),
-    errorStyle: GoogleFonts.nunito(color: const Color(0xFFE0645B), fontSize: 12),
+    errorStyle: GoogleFonts.nunito(
+      color: const Color(0xFFE0645B),
+      fontSize: 12,
+    ),
   );
 }
 
@@ -881,7 +1082,11 @@ class _PastelTextField extends StatelessWidget {
       validator: validator,
       style: GoogleFonts.nunito(fontSize: 15, color: _Palette.textDark),
       cursorColor: _Palette.softCoral,
-      decoration: _pastelDecoration(label: label, hint: hintText, prefixIcon: prefixIcon),
+      decoration: _pastelDecoration(
+        label: label,
+        hint: hintText,
+        prefixIcon: prefixIcon,
+      ),
     );
   }
 }
@@ -925,7 +1130,9 @@ class _PastelPasswordField extends StatelessWidget {
         prefixIcon: Icons.lock_outline_rounded,
         suffixIcon: IconButton(
           icon: Icon(
-            obscureText ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+            obscureText
+                ? Icons.visibility_outlined
+                : Icons.visibility_off_outlined,
             color: _Palette.textMuted,
           ),
           tooltip: obscureText ? 'Show password' : 'Hide password',
@@ -980,7 +1187,10 @@ class _PastelPrimaryButton extends StatelessWidget {
                     ? const SizedBox(
                         height: 22,
                         width: 22,
-                        child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          color: Colors.white,
+                        ),
                       )
                     : Text(
                         label,
@@ -1032,14 +1242,20 @@ class _PastelOutlineButton extends StatelessWidget {
             child: Container(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: accent.withValues(alpha: 0.55), width: 1.5),
+                border: Border.all(
+                  color: accent.withValues(alpha: 0.55),
+                  width: 1.5,
+                ),
               ),
               child: Center(
                 child: isLoading
                     ? SizedBox(
                         height: 20,
                         width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2.3, color: accent),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.3,
+                          color: accent,
+                        ),
                       )
                     : Row(
                         mainAxisSize: MainAxisSize.min,
@@ -1085,12 +1301,20 @@ class _ErrorBanner extends StatelessWidget {
         ),
         child: Row(
           children: [
-            const Icon(Icons.error_outline_rounded, color: errorColor, size: 20),
+            const Icon(
+              Icons.error_outline_rounded,
+              color: errorColor,
+              size: 20,
+            ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
                 message,
-                style: GoogleFonts.nunito(color: errorColor, fontSize: 13, fontWeight: FontWeight.w600),
+                style: GoogleFonts.nunito(
+                  color: errorColor,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ],

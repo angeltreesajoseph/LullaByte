@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,18 +9,20 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../../core/router/route_paths.dart';
 import '../../../authentication/presentation/widgets/auth_background.dart';
 import '../../../authentication/presentation/widgets/auth_palette.dart';
-import '../../application/assistant_providers.dart';
 import '../../application/chat_controller.dart';
-import '../../domain/entities/assistant_mode.dart';
+import '../../application/assistant_voice.dart';
+import '../../domain/usecases/assistant_routing.dart';
 import '../../domain/entities/chat_message.dart';
 import '../../../baby_management/application/baby_profile_store.dart';
 
 const _suggestedQuestions = <String>[
-  'Why is my baby crying?',
-  'Is my baby sleeping enough?',
-  'When is the next vaccine due?',
-  'How many diapers are normal?',
-  'What milestones should my baby have?',
+  'Feeding records',
+  'Sleep records',
+  'Next saved vaccination',
+  'Growth records',
+  'Diaper records',
+  'Cry records',
+  'Milestones',
 ];
 
 /// AI Assistant screen (SRS Section 10.15) — a single hybrid Offline +
@@ -41,29 +44,129 @@ class AiAssistantScreen extends ConsumerStatefulWidget {
   ConsumerState<AiAssistantScreen> createState() => _AiAssistantScreenState();
 }
 
-class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> with SingleTickerProviderStateMixin {
+class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _entranceController;
   late final Animation<double> _headerFade;
 
   final _messageController = TextEditingController();
   final _scrollController = ScrollController();
+  final _voice = AssistantVoice();
+  bool _voiceConsent = false, _voiceBusy = false;
+  String? _speakingId, _visibleBaby;
+  int _voiceGeneration = 0;
 
   @override
   void initState() {
     super.initState();
+    _visibleBaby = BabyProfileStore.id;
+    BabyProfileStore.changes.addListener(_babyChanged);
     _entranceController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 700),
     )..forward();
-    _headerFade = CurvedAnimation(parent: _entranceController, curve: Curves.easeOut);
+    _headerFade = CurvedAnimation(
+      parent: _entranceController,
+      curve: Curves.easeOut,
+    );
   }
 
   @override
   void dispose() {
+    BabyProfileStore.changes.removeListener(_babyChanged);
+    _voiceGeneration++;
+    unawaited(_voice.stop().catchError((Object _) {}));
     _entranceController.dispose();
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _babyChanged() {
+    if (_visibleBaby == BabyProfileStore.id) return;
+    _visibleBaby = BabyProfileStore.id;
+    _messageController.clear();
+    _stopVoice();
+  }
+
+  void _stopVoice() {
+    _voiceGeneration++;
+    unawaited(_voice.stop().catchError((Object _) {}));
+    if (mounted) setState(() => _speakingId = null);
+  }
+
+  Future<void> _dictate() async {
+    if (_voiceBusy) return;
+    if (!_voiceConsent) {
+      final allowed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Speak a message'),
+          content: const Text(
+            'Your phone’s speech service converts your voice to editable text and may process speech online. LullaByte does not save this audio. Review the words before tapping Send.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Continue'),
+            ),
+          ],
+        ),
+      );
+      if (allowed != true || !mounted) return;
+      _voiceConsent = true;
+    }
+    _stopVoice();
+    final generation = _voiceGeneration;
+    setState(() => _voiceBusy = true);
+    try {
+      final text = await _voice.dictate();
+      if (!mounted ||
+          generation != _voiceGeneration ||
+          text == null ||
+          text.trim().isEmpty)
+        return;
+      final combined = '${_messageController.text.trim()} ${text.trim()}'
+          .trim();
+      _messageController.text = combined.length > 1000
+          ? combined.substring(0, 1000)
+          : combined;
+      _messageController.selection = TextSelection.collapsed(
+        offset: _messageController.text.length,
+      );
+    } catch (_) {
+      if (mounted)
+        _showToast(
+          'Voice input is unavailable. Check the phone’s speech service or type your message.',
+        );
+    } finally {
+      if (mounted) setState(() => _voiceBusy = false);
+    }
+  }
+
+  Future<void> _readReply(ChatMessage message) async {
+    if (_speakingId == message.id) {
+      _stopVoice();
+      return;
+    }
+    _stopVoice();
+    final generation = _voiceGeneration;
+    setState(() => _speakingId = message.id);
+    try {
+      await _voice.speak(message.text);
+    } catch (_) {
+      if (mounted && generation == _voiceGeneration)
+        _showToast(
+          'Read aloud is unavailable. Check phone text-to-speech language settings.',
+        );
+    } finally {
+      if (mounted && generation == _voiceGeneration)
+        setState(() => _speakingId = null);
+    }
   }
 
   void _showToast(String message) {
@@ -73,10 +176,15 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> with Sing
         SnackBar(
           behavior: SnackBarBehavior.floating,
           backgroundColor: AuthPalette.textDark,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
           content: Text(
             message,
-            style: GoogleFonts.nunito(color: Colors.white, fontWeight: FontWeight.w600),
+            style: GoogleFonts.nunito(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       );
@@ -93,11 +201,21 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> with Sing
     });
   }
 
-  void _handleSend([String? presetText]) {
+  Future<void> _handleSend([String? presetText]) async {
     final text = presetText ?? _messageController.text;
     if (text.trim().isEmpty) return;
-    final isOnline = ref.read(assistantModeProvider) == AssistantMode.online;
-    ref.read(chatControllerProvider.notifier).sendMessage(text, isOnline: isOnline);
+    if (ref.read(chatControllerProvider).isTyping ||
+        BabyProfileStore.id == null)
+      return;
+    final id = BabyProfileStore.id;
+    final online = !AssistantRouting.usesRecords(text);
+    if (!mounted ||
+        BabyProfileStore.id != id ||
+        ref.read(chatControllerProvider).isTyping)
+      return;
+    ref
+        .read(chatControllerProvider.notifier)
+        .sendMessage(text, isOnline: online);
     _messageController.clear();
     FocusScope.of(context).unfocus();
   }
@@ -106,7 +224,6 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> with Sing
   Widget build(BuildContext context) {
     ref.listen(chatControllerProvider, (previous, next) => _scrollToBottom());
 
-    final mode = ref.watch(assistantModeProvider);
     final chatState = ref.watch(chatControllerProvider);
 
     return Scaffold(
@@ -131,30 +248,85 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> with Sing
                           children: [
                             Row(
                               children: [
-                                AuthBackButton(onPressed: () => context.go(RoutePaths.dashboard)),
+                                AuthBackButton(
+                                  onPressed: () =>
+                                      context.go(RoutePaths.dashboard),
+                                ),
                                 const Spacer(),
+                                IconButton(
+                                  tooltip: 'Clear conversation',
+                                  icon: const Icon(
+                                    Icons.delete_outline_rounded,
+                                  ),
+                                  onPressed: chatState.messages.length <= 1
+                                      ? null
+                                      : () async {
+                                          final id = BabyProfileStore.id;
+                                          final clear = await showDialog<bool>(
+                                            context: context,
+                                            builder: (context) => AlertDialog(
+                                              title: const Text(
+                                                'Clear conversation?',
+                                              ),
+                                              content: Text(
+                                                'This clears only this session’s conversation for ${BabyProfileStore.name}. Care records are not deleted.',
+                                              ),
+                                              actions: [
+                                                TextButton(
+                                                  onPressed: () =>
+                                                      Navigator.pop(
+                                                        context,
+                                                        false,
+                                                      ),
+                                                  child: const Text('Cancel'),
+                                                ),
+                                                TextButton(
+                                                  onPressed: () =>
+                                                      Navigator.pop(
+                                                        context,
+                                                        true,
+                                                      ),
+                                                  child: const Text('Clear'),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                          if (clear == true &&
+                                              mounted &&
+                                              BabyProfileStore.id == id) {
+                                            ref
+                                                .read(
+                                                  chatControllerProvider
+                                                      .notifier,
+                                                )
+                                                .clearConversation();
+                                            _showToast('Conversation cleared.');
+                                          }
+                                        },
+                                ),
                               ],
                             ),
-                            const _AssistantHeaderCard(),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                _ModeChip(mode: mode),
-                              ],
-                            ),
-                            AnimatedSize(
-                              duration: const Duration(milliseconds: 250),
-                              curve: Curves.easeOut,
-                              child: mode == AssistantMode.offline
-                                  ? const Padding(
-                                      padding: EdgeInsets.only(top: 10),
-                                      child: _ConnectivityBanner(),
-                                    )
-                                  : const SizedBox.shrink(),
-                            ),
-                            const SizedBox(height: 12),
-                            _SuggestedQuestionsRow(onSelected: _handleSend),
-                            const SizedBox(height: 8),
+                            if (MediaQuery.viewInsetsOf(context).bottom ==
+                                0) ...[
+                              const _AssistantHeaderCard(),
+                              const SizedBox(height: 12),
+                              if (chatState.messages.length == 1 &&
+                                  BabyProfileStore.id != null)
+                                _SuggestedQuestionsRow(
+                                  onSelected: _handleSend,
+                                  questions: _suggestedQuestions,
+                                ),
+                              const SizedBox(height: 8),
+                            ] else
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: Text(
+                                  'Saved records for ${BabyProfileStore.name}',
+                                  style: GoogleFonts.nunito(
+                                    color: AuthPalette.textMuted,
+                                  ),
+                                ),
+                              ),
                           ],
                         ),
                       ),
@@ -163,12 +335,17 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> with Sing
                       child: ListView.builder(
                         controller: _scrollController,
                         padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
-                        itemCount: chatState.messages.length + (chatState.isTyping ? 1 : 0),
+                        itemCount:
+                            chatState.messages.length +
+                            (chatState.isTyping ? 1 : 0),
                         itemBuilder: (context, index) {
                           if (index == chatState.messages.length) {
                             return const Padding(
                               padding: EdgeInsets.only(bottom: 12),
-                              child: Align(alignment: Alignment.centerLeft, child: _TypingIndicatorBubble()),
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: _TypingIndicatorBubble(),
+                              ),
                             );
                           }
                           final message = chatState.messages[index];
@@ -176,18 +353,45 @@ class _AiAssistantScreenState extends ConsumerState<AiAssistantScreen> with Sing
                             padding: const EdgeInsets.only(bottom: 12),
                             child: _AnimatedMessageEntry(
                               key: ValueKey(message.id),
-                              child: _MessageBubble(message: message),
+                              child: _MessageBubble(
+                                message: message,
+                                onRead:
+                                    message.sender == ChatSender.assistant &&
+                                        message.id != 'welcome'
+                                    ? () => _readReply(message)
+                                    : null,
+                                speaking: _speakingId == message.id,
+                              ),
                             ),
                           );
                         },
+                      ),
+                    ),
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(24, 2, 24, 6),
+                      child: Text(
+                        'Saved-record answers are handled on-device. General questions and recent online chat go to Google Gemini.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: AuthPalette.textMuted,
+                        ),
                       ),
                     ),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
                       child: _MessageComposer(
                         controller: _messageController,
-                        onSend: () => _handleSend(),
-                        onMicTap: () => _showToast('Voice input is coming soon 🌙'),
+                        onMic:
+                            chatState.isTyping ||
+                                _voiceBusy ||
+                                BabyProfileStore.id == null
+                            ? null
+                            : _dictate,
+                        onSend:
+                            chatState.isTyping || BabyProfileStore.id == null
+                            ? null
+                            : () => _handleSend(),
                       ),
                     ),
                   ],
@@ -208,25 +412,64 @@ class _AssistantFloatingDecor extends StatefulWidget {
   const _AssistantFloatingDecor();
 
   @override
-  State<_AssistantFloatingDecor> createState() => _AssistantFloatingDecorState();
+  State<_AssistantFloatingDecor> createState() =>
+      _AssistantFloatingDecorState();
 }
 
-class _AssistantFloatingDecorState extends State<_AssistantFloatingDecor> with SingleTickerProviderStateMixin {
+class _AssistantFloatingDecorState extends State<_AssistantFloatingDecor>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
 
   static const _specs = <_DecorSpec>[
-    _DecorSpec(icon: Icons.star_rounded, top: 0.03, left: 0.09, size: 12, color: AuthPalette.softCoral, phase: 0.0),
-    _DecorSpec(icon: Icons.cloud_rounded, top: 0.05, left: 0.85, size: 20, color: AuthPalette.powderBlue, phase: 0.4),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.19, left: 0.91, size: 10, color: AuthPalette.mint, phase: 0.25),
-    _DecorSpec(icon: Icons.star_rounded, top: 0.28, left: 0.05, size: 11, color: AuthPalette.lavenderMist, phase: 0.6),
-    _DecorSpec(icon: Icons.cloud_rounded, top: 0.85, left: 0.07, size: 16, color: AuthPalette.blushPink, phase: 0.15),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.03,
+      left: 0.09,
+      size: 12,
+      color: AuthPalette.softCoral,
+      phase: 0.0,
+    ),
+    _DecorSpec(
+      icon: Icons.cloud_rounded,
+      top: 0.05,
+      left: 0.85,
+      size: 20,
+      color: AuthPalette.powderBlue,
+      phase: 0.4,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.19,
+      left: 0.91,
+      size: 10,
+      color: AuthPalette.mint,
+      phase: 0.25,
+    ),
+    _DecorSpec(
+      icon: Icons.star_rounded,
+      top: 0.28,
+      left: 0.05,
+      size: 11,
+      color: AuthPalette.lavenderMist,
+      phase: 0.6,
+    ),
+    _DecorSpec(
+      icon: Icons.cloud_rounded,
+      top: 0.85,
+      left: 0.07,
+      size: 16,
+      color: AuthPalette.blushPink,
+      phase: 0.15,
+    ),
   ];
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(seconds: 4))
-      ..repeat(reverse: true);
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 4),
+    )..repeat(reverse: true);
   }
 
   @override
@@ -249,7 +492,12 @@ class _AssistantFloatingDecorState extends State<_AssistantFloatingDecor> with S
                   child: AnimatedBuilder(
                     animation: _controller,
                     builder: (context, child) {
-                      final t = (math.sin((_controller.value + spec.phase) * math.pi * 2) + 1) / 2;
+                      final t =
+                          (math.sin(
+                                (_controller.value + spec.phase) * math.pi * 2,
+                              ) +
+                              1) /
+                          2;
                       return Opacity(opacity: 0.07 + (t * 0.09), child: child);
                     },
                     child: Icon(spec.icon, size: spec.size, color: spec.color),
@@ -298,7 +546,9 @@ class _AssistantHeaderCard extends StatelessWidget {
           ],
         ),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: AuthPalette.lavenderMist.withValues(alpha: 0.5)),
+        border: Border.all(
+          color: AuthPalette.lavenderMist.withValues(alpha: 0.5),
+        ),
         boxShadow: [
           BoxShadow(
             color: AuthPalette.softCoral.withValues(alpha: 0.14),
@@ -324,7 +574,11 @@ class _AssistantHeaderCard extends StatelessWidget {
                 ),
               ],
             ),
-            child: const Icon(Icons.auto_awesome_rounded, color: AuthPalette.softCoral, size: 24),
+            child: const Icon(
+              Icons.auto_awesome_rounded,
+              color: AuthPalette.softCoral,
+              size: 24,
+            ),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -333,12 +587,19 @@ class _AssistantHeaderCard extends StatelessWidget {
               children: [
                 Text(
                   'LullaByte Assistant',
-                  style: GoogleFonts.quicksand(fontSize: 19, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+                  style: GoogleFonts.quicksand(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w700,
+                    color: AuthPalette.textDark,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  "Ask anything about ${BabyProfileStore.name}'s care",
-                  style: GoogleFonts.nunito(fontSize: 12.5, color: AuthPalette.textMuted),
+                  "For ${BabyProfileStore.name} · Care information, not a diagnosis",
+                  style: GoogleFonts.nunito(
+                    fontSize: 12.5,
+                    color: AuthPalette.textMuted,
+                  ),
                 ),
               ],
             ),
@@ -349,70 +610,14 @@ class _AssistantHeaderCard extends StatelessWidget {
   }
 }
 
-class _ModeChip extends StatelessWidget {
-  const _ModeChip({required this.mode});
-
-  final AssistantMode mode;
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 250),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: mode.color.withValues(alpha: 0.35),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: mode.color.withValues(alpha: 0.6)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(mode.icon, size: 14, color: AuthPalette.textDark),
-          const SizedBox(width: 6),
-          Text(
-            mode.label,
-            style: GoogleFonts.nunito(fontSize: 11.5, fontWeight: FontWeight.w800, color: AuthPalette.textDark),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ConnectivityBanner extends StatelessWidget {
-  const _ConnectivityBanner();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AuthPalette.mint.withValues(alpha: 0.22),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AuthPalette.mint.withValues(alpha: 0.45)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(Icons.info_outline_rounded, color: AuthPalette.textMuted, size: 16),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              "Advanced AI is unavailable. Using ${BabyProfileStore.name}'s local data.",
-              style: GoogleFonts.nunito(fontSize: 11.5, color: AuthPalette.textMuted, height: 1.35),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _SuggestedQuestionsRow extends StatelessWidget {
-  const _SuggestedQuestionsRow({required this.onSelected});
+  const _SuggestedQuestionsRow({
+    required this.onSelected,
+    this.questions = _suggestedQuestions,
+  });
 
   final ValueChanged<String> onSelected;
+  final List<String> questions;
 
   @override
   Widget build(BuildContext context) {
@@ -420,10 +625,10 @@ class _SuggestedQuestionsRow extends StatelessWidget {
       height: 36,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        itemCount: _suggestedQuestions.length,
+        itemCount: questions.length,
         separatorBuilder: (context, index) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
-          final question = _suggestedQuestions[index];
+          final question = questions[index];
           return Material(
             color: Colors.white.withValues(alpha: 0.85),
             borderRadius: BorderRadius.circular(18),
@@ -431,15 +636,24 @@ class _SuggestedQuestionsRow extends StatelessWidget {
               borderRadius: BorderRadius.circular(18),
               onTap: () => onSelected(question),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: AuthPalette.lavenderMist.withValues(alpha: 0.5)),
+                  border: Border.all(
+                    color: AuthPalette.lavenderMist.withValues(alpha: 0.5),
+                  ),
                 ),
                 alignment: Alignment.center,
                 child: Text(
                   question,
-                  style: GoogleFonts.nunito(fontSize: 12, fontWeight: FontWeight.w700, color: AuthPalette.textDark),
+                  style: GoogleFonts.nunito(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: AuthPalette.textDark,
+                  ),
                 ),
               ),
             ),
@@ -461,7 +675,8 @@ class _AnimatedMessageEntry extends StatefulWidget {
   State<_AnimatedMessageEntry> createState() => _AnimatedMessageEntryState();
 }
 
-class _AnimatedMessageEntryState extends State<_AnimatedMessageEntry> with SingleTickerProviderStateMixin {
+class _AnimatedMessageEntryState extends State<_AnimatedMessageEntry>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late final Animation<double> _fade;
   late final Animation<Offset> _slide;
@@ -469,11 +684,15 @@ class _AnimatedMessageEntryState extends State<_AnimatedMessageEntry> with Singl
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 320))..forward();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 320),
+    )..forward();
     _fade = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
-    _slide = Tween<Offset>(begin: const Offset(0, 0.12), end: Offset.zero).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
-    );
+    _slide = Tween<Offset>(
+      begin: const Offset(0, 0.12),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
   }
 
   @override
@@ -492,88 +711,91 @@ class _AnimatedMessageEntryState extends State<_AnimatedMessageEntry> with Singl
 }
 
 class _MessageBubble extends StatelessWidget {
-  const _MessageBubble({required this.message});
-
+  const _MessageBubble({
+    required this.message,
+    this.onRead,
+    this.speaking = false,
+  });
   final ChatMessage message;
-
+  final VoidCallback? onRead;
+  final bool speaking;
   @override
   Widget build(BuildContext context) {
-    final isUser = message.sender == ChatSender.user;
-    final timeLabel = TimeOfDay.fromDateTime(message.timestamp).format(context);
-
-    final bubble = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        gradient: isUser
-            ? const LinearGradient(colors: [AuthPalette.softCoral, Color(0xFFEF6FA0)])
-            : null,
-        color: isUser ? null : Colors.white.withValues(alpha: 0.95),
-        borderRadius: BorderRadius.only(
-          topLeft: const Radius.circular(20),
-          topRight: const Radius.circular(20),
-          bottomLeft: Radius.circular(isUser ? 20 : 4),
-          bottomRight: Radius.circular(isUser ? 4 : 20),
+    final user = message.sender == ChatSender.user;
+    return Align(
+      key: ValueKey('message-${message.id}'),
+      alignment: user ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.sizeOf(context).width * .78,
         ),
-        border: isUser ? null : Border.all(color: AuthPalette.lavenderMist.withValues(alpha: 0.5)),
-        boxShadow: [
-          BoxShadow(
-            color: AuthPalette.softCoral.withValues(alpha: 0.10),
-            blurRadius: 14,
-            offset: const Offset(0, 6),
+        padding: const EdgeInsets.fromLTRB(14, 10, 10, 6),
+        decoration: BoxDecoration(
+          color: user
+              ? AuthPalette.blushPink
+              : Colors.white.withValues(alpha: .96),
+          borderRadius: BorderRadius.only(
+            topLeft: const Radius.circular(20),
+            topRight: const Radius.circular(20),
+            bottomLeft: Radius.circular(user ? 20 : 4),
+            bottomRight: Radius.circular(user ? 4 : 20),
           ),
-        ],
+          border: Border.all(
+            color: AuthPalette.lavenderMist.withValues(alpha: .5),
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SelectableText(
+              message.text,
+              style: GoogleFonts.nunito(
+                fontSize: 14,
+                height: 1.4,
+                color: AuthPalette.textDark,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                if (onRead != null)
+                  IconButton(
+                    tooltip: speaking ? 'Stop reading' : 'Read aloud',
+                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints(
+                      minWidth: 40,
+                      minHeight: 40,
+                    ),
+                    onPressed: onRead,
+                    icon: Icon(
+                      speaking ? Icons.stop_rounded : Icons.volume_up_outlined,
+                      size: 18,
+                      color: AuthPalette.textMuted,
+                    ),
+                  ),
+                if (message.failed)
+                  const Padding(
+                    padding: EdgeInsets.only(right: 5),
+                    child: Icon(
+                      Icons.error_outline,
+                      size: 14,
+                      color: AuthPalette.error,
+                    ),
+                  ),
+                Text(
+                  '${message.sender == ChatSender.assistant && message.id != 'welcome' && !message.online && !message.failed ? 'Saved records · ' : ''}${TimeOfDay.fromDateTime(message.timestamp).format(context)}',
+                  style: GoogleFonts.nunito(
+                    fontSize: 10,
+                    color: AuthPalette.textMuted,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
-      child: Text(
-        message.text,
-        style: GoogleFonts.nunito(
-          fontSize: 13.5,
-          height: 1.4,
-          color: isUser ? Colors.white : AuthPalette.textDark,
-        ),
-      ),
-    );
-
-    final content = Column(
-      crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-      children: [
-        bubble,
-        const SizedBox(height: 4),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          child: Text(
-            timeLabel,
-            style: GoogleFonts.nunito(fontSize: 10, color: AuthPalette.textMuted),
-          ),
-        ),
-      ],
-    );
-
-    if (isUser) {
-      return Row(
-        mainAxisAlignment: MainAxisAlignment.end,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Flexible(child: content),
-        ],
-      );
-    }
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.start,
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Container(
-          width: 30,
-          height: 30,
-          margin: const EdgeInsets.only(right: 8),
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: AuthPalette.lavenderMist.withValues(alpha: 0.4),
-          ),
-          child: const Icon(Icons.auto_awesome_rounded, size: 14, color: AuthPalette.softCoral),
-        ),
-        Flexible(child: content),
-      ],
     );
   }
 }
@@ -585,13 +807,17 @@ class _TypingIndicatorBubble extends StatefulWidget {
   State<_TypingIndicatorBubble> createState() => _TypingIndicatorBubbleState();
 }
 
-class _TypingIndicatorBubbleState extends State<_TypingIndicatorBubble> with SingleTickerProviderStateMixin {
+class _TypingIndicatorBubbleState extends State<_TypingIndicatorBubble>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 1100))..repeat();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1100),
+    )..repeat();
   }
 
   @override
@@ -614,7 +840,11 @@ class _TypingIndicatorBubbleState extends State<_TypingIndicatorBubble> with Sin
             shape: BoxShape.circle,
             color: AuthPalette.lavenderMist.withValues(alpha: 0.4),
           ),
-          child: const Icon(Icons.auto_awesome_rounded, size: 14, color: AuthPalette.softCoral),
+          child: const Icon(
+            Icons.auto_awesome_rounded,
+            size: 14,
+            color: AuthPalette.softCoral,
+          ),
         ),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -626,7 +856,9 @@ class _TypingIndicatorBubbleState extends State<_TypingIndicatorBubble> with Sin
               bottomLeft: Radius.circular(4),
               bottomRight: Radius.circular(20),
             ),
-            border: Border.all(color: AuthPalette.lavenderMist.withValues(alpha: 0.5)),
+            border: Border.all(
+              color: AuthPalette.lavenderMist.withValues(alpha: 0.5),
+            ),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -636,7 +868,12 @@ class _TypingIndicatorBubbleState extends State<_TypingIndicatorBubble> with Sin
                 AnimatedBuilder(
                   animation: _controller,
                   builder: (context, child) {
-                    final t = (math.sin((_controller.value + (i * 0.2)) * math.pi * 2) + 1) / 2;
+                    final t =
+                        (math.sin(
+                              (_controller.value + (i * 0.2)) * math.pi * 2,
+                            ) +
+                            1) /
+                        2;
                     return Opacity(
                       opacity: 0.35 + (t * 0.65),
                       child: Transform.translate(
@@ -648,7 +885,10 @@ class _TypingIndicatorBubbleState extends State<_TypingIndicatorBubble> with Sin
                   child: Container(
                     width: 7,
                     height: 7,
-                    decoration: const BoxDecoration(color: AuthPalette.softCoral, shape: BoxShape.circle),
+                    decoration: const BoxDecoration(
+                      color: AuthPalette.softCoral,
+                      shape: BoxShape.circle,
+                    ),
                   ),
                 ),
               ],
@@ -661,11 +901,15 @@ class _TypingIndicatorBubbleState extends State<_TypingIndicatorBubble> with Sin
 }
 
 class _MessageComposer extends StatelessWidget {
-  const _MessageComposer({required this.controller, required this.onSend, required this.onMicTap});
+  const _MessageComposer({
+    required this.controller,
+    required this.onSend,
+    this.onMic,
+  });
+  final VoidCallback? onMic;
 
   final TextEditingController controller;
-  final VoidCallback onSend;
-  final VoidCallback onMicTap;
+  final VoidCallback? onSend;
 
   @override
   Widget build(BuildContext context) {
@@ -690,23 +934,42 @@ class _MessageComposer extends StatelessWidget {
               minLines: 1,
               maxLines: 4,
               textCapitalization: TextCapitalization.sentences,
-              onSubmitted: (_) => onSend(),
-              style: GoogleFonts.nunito(fontSize: 14, color: AuthPalette.textDark),
+              onSubmitted: (_) => onSend?.call(),
+              maxLength: 1000,
+              style: GoogleFonts.nunito(
+                fontSize: 14,
+                color: AuthPalette.textDark,
+              ),
               cursorColor: AuthPalette.softCoral,
               decoration: InputDecoration(
+                counterText: '',
                 hintText: "Ask about ${BabyProfileStore.name}'s care...",
-                hintStyle: GoogleFonts.nunito(fontSize: 13.5, color: AuthPalette.textMuted.withValues(alpha: 0.7)),
+                hintStyle: GoogleFonts.nunito(
+                  fontSize: 13.5,
+                  color: AuthPalette.textMuted.withValues(alpha: 0.7),
+                ),
                 filled: true,
                 fillColor: AuthPalette.blushPink.withValues(alpha: 0.22),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  borderSide: BorderSide.none,
+                ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(20),
-                  borderSide: BorderSide(color: AuthPalette.lavenderMist.withValues(alpha: 0.6)),
+                  borderSide: BorderSide(
+                    color: AuthPalette.lavenderMist.withValues(alpha: 0.6),
+                  ),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(20),
-                  borderSide: const BorderSide(color: AuthPalette.softCoral, width: 1.5),
+                  borderSide: const BorderSide(
+                    color: AuthPalette.softCoral,
+                    width: 1.5,
+                  ),
                 ),
               ),
             ),
@@ -714,10 +977,10 @@ class _MessageComposer extends StatelessWidget {
           const SizedBox(width: 6),
           _ComposerIconButton(
             icon: Icons.mic_none_rounded,
-            background: AuthPalette.lavenderMist.withValues(alpha: 0.4),
+            background: AuthPalette.lavenderMist,
             iconColor: AuthPalette.textDark,
-            tooltip: 'Voice input',
-            onTap: onMicTap,
+            tooltip: 'Speak message',
+            onTap: onMic,
           ),
           const SizedBox(width: 6),
           _ComposerIconButton(
@@ -746,19 +1009,27 @@ class _ComposerIconButton extends StatelessWidget {
   final Color background;
   final Color iconColor;
   final String tooltip;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: background,
-      shape: const CircleBorder(),
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(11),
-          child: Icon(icon, size: 19, color: iconColor),
+    return Semantics(
+      button: true,
+      enabled: onTap != null,
+      label: tooltip,
+      child: Tooltip(
+        message: tooltip,
+        child: Material(
+          color: onTap == null ? background.withValues(alpha: 0.4) : background,
+          shape: const CircleBorder(),
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.all(11),
+              child: Icon(icon, size: 19, color: iconColor),
+            ),
+          ),
         ),
       ),
     );

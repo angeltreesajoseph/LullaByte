@@ -6,7 +6,7 @@ import '../../features/authentication/presentation/widgets/auth_palette.dart';
 import 'route_paths.dart';
 
 /// Persistent shell scaffold for the four main sections (Home, Trackers,
-/// Memories, Profile), built on `go_router`'s `StatefulShellRoute` so each
+/// Memories, Chat), built on `go_router`'s `StatefulShellRoute` so each
 /// tab keeps its own navigation state while the bottom bar stays constant.
 ///
 /// The AI assistant (Luma) is deliberately NOT one of the four
@@ -45,7 +45,11 @@ class MainNavigationShell extends StatelessWidget {
 }
 
 class _AppBottomBar extends StatelessWidget {
-  const _AppBottomBar({required this.currentIndex, required this.onTabSelected, required this.onLumaTap});
+  const _AppBottomBar({
+    required this.currentIndex,
+    required this.onTabSelected,
+    required this.onLumaTap,
+  });
 
   final int currentIndex;
   final ValueChanged<int> onTabSelected;
@@ -61,9 +65,9 @@ class _AppBottomBar extends StatelessWidget {
 
   static const _items = <_BarItemSpec>[
     _BarItemSpec(icon: Icons.home_rounded, label: 'Home'),
-    _BarItemSpec(icon: Icons.checklist_rounded, label: 'Trackers'),
+    _BarItemSpec(icon: Icons.insights_rounded, label: 'Overview'),
     _BarItemSpec(icon: Icons.photo_library_rounded, label: 'Memories'),
-    _BarItemSpec(icon: Icons.person_rounded, label: 'Profile'),
+    _BarItemSpec(icon: Icons.chat_bubble_rounded, label: 'Messages'),
   ];
 
   @override
@@ -86,7 +90,9 @@ class _AppBottomBar extends StatelessWidget {
           padding: EdgeInsets.only(bottom: bottomInset),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(_cornerRadius)),
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(_cornerRadius),
+            ),
             boxShadow: [
               BoxShadow(
                 color: AuthPalette.softCoral.withValues(alpha: 0.18),
@@ -146,7 +152,11 @@ class _BarItemSpec {
 }
 
 class _BarItem extends StatelessWidget {
-  const _BarItem({required this.spec, required this.selected, required this.onTap});
+  const _BarItem({
+    required this.spec,
+    required this.selected,
+    required this.onTap,
+  });
 
   final _BarItemSpec spec;
   final bool selected;
@@ -172,7 +182,9 @@ class _BarItem extends StatelessWidget {
                 duration: const Duration(milliseconds: 200),
                 padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
-                  color: selected ? AuthPalette.softCoral.withValues(alpha: 0.18) : Colors.transparent,
+                  color: selected
+                      ? AuthPalette.softCoral.withValues(alpha: 0.18)
+                      : Colors.transparent,
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: Icon(spec.icon, color: color, size: 22),
@@ -241,7 +253,11 @@ class _LumaButtonState extends State<_LumaButton> {
                     ),
                   ],
                 ),
-                child: const Icon(Icons.smart_toy_rounded, color: Colors.white, size: 30),
+                child: const Icon(
+                  Icons.smart_toy_rounded,
+                  color: Colors.white,
+                  size: 30,
+                ),
               ),
               const SizedBox(height: 3),
               Text(

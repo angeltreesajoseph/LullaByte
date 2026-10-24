@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import '../../../family_sharing/presentation/widgets/join_care_team_card.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
@@ -25,10 +26,7 @@ import '../../../authentication/presentation/widgets/moon_cloud_illustration.dar
 /// be reused here directly rather than duplicated, keeping every hero
 /// screen visually identical without touching Login or Register.
 ///
-/// Submission currently stores the entered details only in local widget
-/// state and simulates the save round-trip; it will call into the Baby
-/// Management data/domain layer once that integration lands, without
-/// requiring any change to this screen's UI.
+/// Both baby forms persist their own details through the authenticated API.
 class BabyRegistrationScreen extends StatefulWidget {
   const BabyRegistrationScreen({super.key});
 
@@ -53,6 +51,10 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
   final _pediatricianController = TextEditingController();
   final _hospitalController = TextEditingController();
   final _allergyController = TextEditingController();
+  final _parentPhoneController = TextEditingController();
+  final _doctorPhoneController = TextEditingController();
+  final _twinParentPhoneController = TextEditingController();
+  final _twinDoctorPhoneController = TextEditingController();
 
   late final AnimationController _entranceController;
   late final Animation<double> _entranceFade;
@@ -123,6 +125,10 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
     _pediatricianController.dispose();
     _hospitalController.dispose();
     _allergyController.dispose();
+    _parentPhoneController.dispose();
+    _doctorPhoneController.dispose();
+    _twinParentPhoneController.dispose();
+    _twinDoctorPhoneController.dispose();
     super.dispose();
   }
 
@@ -175,6 +181,29 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
         return number == null || number <= 0 || number > 100
             ? 'Enter a valid measurement in cm'
             : null;
+      },
+    );
+  }
+
+  Widget _phoneField(
+    TextEditingController controller,
+    String label,
+    String fieldKey,
+  ) {
+    return AuthTextField(
+      key: ValueKey(fieldKey),
+      controller: controller,
+      label: label,
+      hintText: 'Enter contact number if known',
+      keyboardType: TextInputType.phone,
+      prefixIcon: Icons.phone_outlined,
+      enabled: !_isSubmitting,
+      validator: (value) {
+        final phone = value?.trim() ?? '';
+        if (phone.isEmpty) return null;
+        return RegExp(r'^[+0-9() .-]{1,32}$').hasMatch(phone)
+            ? null
+            : 'Enter a valid contact number (up to 32 characters)';
       },
     );
   }
@@ -304,9 +333,6 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
     });
 
     try {
-      // Stores the entered details locally and simulates the save
-      // round-trip pending the Baby Management data/domain layer
-      // integration — mock/local state only, no backend or Firebase.
       final user = FirebaseAuthService().currentUser;
       if (user == null)
         throw StateError(
@@ -317,6 +343,12 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
       if (token != null) dio.options.headers['Authorization'] = 'Bearer $token';
       await BabyApi(dio).create(
         name: _babyNameController.text,
+        parentPhone: _parentPhoneController.text.trim().isEmpty
+            ? null
+            : _parentPhoneController.text.trim(),
+        pediatricianPhone: _doctorPhoneController.text.trim().isEmpty
+            ? null
+            : _doctorPhoneController.text.trim(),
         photoData: _babyPhoto == null
             ? null
             : base64Encode(await _babyPhoto!.readAsBytes()),
@@ -339,6 +371,12 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
       if (_isTwin) {
         await BabyApi(dio).create(
           name: _twinNameController.text,
+          parentPhone: _twinParentPhoneController.text.trim().isEmpty
+              ? null
+              : _twinParentPhoneController.text.trim(),
+          pediatricianPhone: _twinDoctorPhoneController.text.trim().isEmpty
+              ? null
+              : _twinDoctorPhoneController.text.trim(),
           photoData: _twinPhoto == null
               ? null
               : base64Encode(await _twinPhoto!.readAsBytes()),
@@ -426,6 +464,8 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
                               textAlign: TextAlign.center,
                             ),
                             const SizedBox(height: 22),
+                            const JoinCareTeamCard(),
+                            const SizedBox(height: 16),
                             FadeTransition(
                               opacity: _entranceFade,
                               child: SlideTransition(
@@ -581,6 +621,12 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
                                                 ),
                                         ),
                                         const SizedBox(height: 14),
+                                        _phoneField(
+                                          _parentPhoneController,
+                                          'Parent contact (optional)',
+                                          'baby_parent_phone',
+                                        ),
+                                        const SizedBox(height: 14),
                                         AuthTextField(
                                           controller: _pediatricianController,
                                           label: 'Pediatrician Name (optional)',
@@ -591,6 +637,12 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
                                               Icons.medical_services_outlined,
                                           validator: (_) => null,
                                           enabled: !_isSubmitting,
+                                        ),
+                                        const SizedBox(height: 14),
+                                        _phoneField(
+                                          _doctorPhoneController,
+                                          'Pediatrician contact (optional)',
+                                          'baby_pediatrician_phone',
                                         ),
                                         const SizedBox(height: 14),
                                         AuthTextField(
@@ -867,6 +919,14 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
                                                       const SizedBox(
                                                         height: 14,
                                                       ),
+                                                      _phoneField(
+                                                        _twinParentPhoneController,
+                                                        'Parent contact (optional)',
+                                                        'twin_parent_phone',
+                                                      ),
+                                                      const SizedBox(
+                                                        height: 14,
+                                                      ),
                                                       AuthTextField(
                                                         controller:
                                                             _twinPediatricianController,
@@ -881,6 +941,14 @@ class _BabyRegistrationScreenState extends State<BabyRegistrationScreen>
                                                             .medical_services_outlined,
                                                         validator: (_) => null,
                                                         enabled: !_isSubmitting,
+                                                      ),
+                                                      const SizedBox(
+                                                        height: 14,
+                                                      ),
+                                                      _phoneField(
+                                                        _twinDoctorPhoneController,
+                                                        'Pediatrician contact (optional)',
+                                                        'twin_pediatrician_phone',
                                                       ),
                                                       const SizedBox(
                                                         height: 14,

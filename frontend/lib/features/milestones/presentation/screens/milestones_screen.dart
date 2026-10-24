@@ -46,7 +46,7 @@ class _MilestonesScreenState extends State<MilestonesScreen>
     startTracker();
     _entranceController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 900),
+      duration: const Duration(milliseconds: 350),
     )..forward();
     _contentFade = CurvedAnimation(
       parent: _entranceController,
@@ -139,8 +139,9 @@ class _MilestonesScreenState extends State<MilestonesScreen>
                           Row(
                             children: [
                               AuthBackButton(
-                                onPressed: () =>
-                                    context.go(RoutePaths.dashboard),
+                                onPressed: () => Navigator.of(context).canPop()
+                                    ? Navigator.pop(context)
+                                    : context.go(RoutePaths.dashboard),
                               ),
                               const Spacer(),
                             ],

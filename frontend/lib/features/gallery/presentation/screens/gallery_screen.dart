@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:math' as math;
@@ -7,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:dio/dio.dart';
+import 'package:intl/intl.dart';
 
 import '../../../../core/router/route_paths.dart';
 import '../../../authentication/presentation/widgets/auth_background.dart';
@@ -17,22 +18,22 @@ import '../../../baby_management/application/profile_tracker.dart';
 
 class _MemoryPhoto {
   _MemoryPhoto({
+    required this.id,
+    required this.original,
     required this.title,
     required this.dateLabel,
     required this.accentColor,
-    this.file,
     this.bytes,
     this.isFavorite = false,
-    this.isThisMonth = false,
   });
 
+  final String id;
+  final Map<String, dynamic>? original;
   String title;
-  final String dateLabel;
+  String dateLabel;
   final Color accentColor;
-  final File? file;
   final Uint8List? bytes;
   bool isFavorite;
-  bool isThisMonth;
 }
 
 /// Gallery screen (SRS Section 10.12).
@@ -44,13 +45,11 @@ class _MemoryPhoto {
 /// `features/authentication/presentation/widgets/` (read-only reuse; those
 /// files are not modified).
 ///
-/// Photo capture/selection is real (via `image_picker`), but every picked
-/// photo lives only in local widget state for this session — there is no
-/// backend, Firebase, or cloud storage integration. Pre-seeded memories use
-/// realistic sample data with pastel placeholders instead of bundled
-/// images. Add Video is UI-only and surfaces a friendly "coming soon" toast.
+/// Photos and their metadata are persisted for the selected baby.
 class GalleryScreen extends StatefulWidget {
-  const GalleryScreen({super.key});
+  const GalleryScreen({super.key, this.api, this.pickPhoto});
+  final Dio? api;
+  final Future<XFile?> Function(ImageSource source)? pickPhoto;
 
   @override
   State<GalleryScreen> createState() => _GalleryScreenState();
@@ -60,32 +59,54 @@ class _GalleryScreenState extends State<GalleryScreen>
     with SingleTickerProviderStateMixin, ProfileTracker<GalleryScreen> {
   @override
   String get trackerKind => 'memories';
+  @override
+  Future<Dio> createTrackerClient() async =>
+      widget.api ?? await super.createTrackerClient();
+  bool _saving = false;
+  bool get _canEdit =>
+      trackerReady &&
+      !_saving &&
+      BabyProfileStore.data['access_role'] != 'viewer';
 
   @override
   List<Map<String, dynamic>> encodeEntries() => _photos
-      .map(
+      .map<Map<String, dynamic>>(
         (photo) => {
+          ...?photo.original,
           'title': photo.title,
+          'id': photo.id,
           'date': photo.dateLabel,
-          'photo_data': base64Encode(photo.bytes!),
+          'photo_data': photo.bytes == null
+              ? (photo.original ?? const <String, dynamic>{})['photo_data']
+              : base64Encode(photo.bytes!),
           'favorite': photo.isFavorite,
-          'this_month': photo.isThisMonth,
         },
       )
       .toList();
 
   @override
   void decodeEntries(List<Map<String, dynamic>> entries) {
+    if (_memoryBabyId != BabyProfileStore.id) {
+      _memoryBabyId = BabyProfileStore.id;
+      _visibleLimit = 24;
+    }
     _photos.clear();
     for (final entry in entries) {
+      Uint8List? bytes;
+      try {
+        bytes = base64Decode(entry['photo_data'] as String);
+      } catch (_) {
+        /* Keep metadata and original data for damaged legacy photos. */
+      }
       _photos.add(
         _MemoryPhoto(
-          title: entry['title'] as String,
-          dateLabel: entry['date'] as String,
+          id: entry['id'] as String? ?? 'legacy/${_photos.length}',
+          original: Map<String, dynamic>.from(entry),
+          title: entry['title'] as String? ?? 'Memory',
+          dateLabel: entry['date'] as String? ?? '',
           accentColor: _accentCycle[_photos.length % _accentCycle.length],
-          bytes: base64Decode(entry['photo_data'] as String),
+          bytes: bytes,
           isFavorite: entry['favorite'] == true,
-          isThisMonth: entry['this_month'] == true,
         ),
       );
     }
@@ -112,48 +133,81 @@ class _GalleryScreenState extends State<GalleryScreen>
     'Favorites',
     'This Week',
     'This Month',
-    'Videos',
   ];
 
   int _selectedFilter = 0;
+  int _visibleLimit = 24;
+  String? _memoryBabyId;
 
-  late final List<_MemoryPhoto> _photos = [
-    _MemoryPhoto(
-      title: "${BabyProfileStore.name}'s first laugh",
-      dateLabel: '1 Aug 2026',
-      accentColor: AuthPalette.blushPink,
-      isFavorite: true,
-      isThisMonth: true,
-    ),
-    _MemoryPhoto(
-      title: 'Nap time snuggles',
-      dateLabel: '30 Jul 2026',
-      accentColor: AuthPalette.softCoral,
-      isThisMonth: true,
-    ),
-    _MemoryPhoto(
-      title: 'Bath time giggles',
-      dateLabel: '20 Jul 2026',
-      accentColor: AuthPalette.lavenderMist,
-    ),
-    _MemoryPhoto(
-      title: 'Tummy time',
-      dateLabel: '15 Jun 2026',
-      accentColor: AuthPalette.mint,
-    ),
-    _MemoryPhoto(
-      title: 'Meeting Grandma',
-      dateLabel: '2 May 2026',
-      accentColor: AuthPalette.powderBlue,
-      isFavorite: true,
-    ),
-    _MemoryPhoto(
-      title: 'First smile',
-      dateLabel: '18 Apr 2026',
-      accentColor: AuthPalette.blushPink,
-      isFavorite: true,
-    ),
-  ];
+  final List<_MemoryPhoto> _photos = [];
+
+  DateTime? _photoDate(_MemoryPhoto photo) {
+    final iso = DateTime.tryParse(photo.dateLabel);
+    if (iso != null) return DateUtils.dateOnly(iso);
+    try {
+      return DateFormat('d MMM yyyy', 'en').parseStrict(photo.dateLabel);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  bool _inMonth(_MemoryPhoto photo) {
+    final date = _photoDate(photo), now = DateTime.now();
+    return date != null && date.year == now.year && date.month == now.month;
+  }
+
+  List<_MemoryPhoto> get _visiblePhotos {
+    final today = DateUtils.dateOnly(DateTime.now());
+    final weekStart = today.subtract(Duration(days: today.weekday - 1));
+    return _photos.where((p) {
+      final date = _photoDate(p);
+      return switch (_selectedFilter) {
+        1 => p.isFavorite,
+        2 => date != null && !date.isBefore(weekStart) && !date.isAfter(today),
+        3 => _inMonth(p),
+        _ => true,
+      };
+    }).toList()..sort(
+      (a, b) => (_photoDate(b) ?? DateTime(1900)).compareTo(
+        _photoDate(a) ?? DateTime(1900),
+      ),
+    );
+  }
+
+  Future<bool> _commit(List<Map<String, dynamic>> next) async {
+    if (!_canEdit) return false;
+    final id = BabyProfileStore.id;
+    if (id == null) return false;
+    setState(() => _saving = true);
+    try {
+      final client = await createTrackerClient();
+      await client.put('/babies/$id/trackers/memories', data: next);
+      if (!mounted || BabyProfileStore.id != id) return false;
+      acceptServerTrackerMutation();
+      final updated = {
+        ...BabyProfileStore.data,
+        'tracker_data': {
+          ...Map<String, dynamic>.from(
+            BabyProfileStore.data['tracker_data'] as Map? ?? {},
+          ),
+          'memories': next,
+        },
+      };
+      BabyProfileStore.rememberSnapshot(updated);
+      setState(() => decodeEntries(next));
+      return true;
+    } catch (error) {
+      if (mounted && BabyProfileStore.id == id)
+        _showToast(
+          error is DioException && error.response?.statusCode == 409
+              ? 'Memories changed on another device. Reopen Memories before saving.'
+              : 'Memory could not be saved. Your saved photos are unchanged. Please retry.',
+        );
+      return false;
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
 
   @override
   void initState() {
@@ -161,7 +215,7 @@ class _GalleryScreenState extends State<GalleryScreen>
     startTracker();
     _entranceController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 900),
+      duration: const Duration(milliseconds: 350),
     )..forward();
     _contentFade = CurvedAnimation(
       parent: _entranceController,
@@ -215,6 +269,7 @@ class _GalleryScreenState extends State<GalleryScreen>
   }
 
   Future<void> _handleAddPhotoTap() async {
+    if (!_canEdit) return;
     final source = await showModalBottomSheet<ImageSource>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -225,63 +280,125 @@ class _GalleryScreenState extends State<GalleryScreen>
   }
 
   Future<void> _pickImage(ImageSource source) async {
-    if (!trackerReady) {
+    if (!_canEdit) {
       _showToast('Wait for your memories to load before adding a photo.');
       return;
     }
     final babyId = BabyProfileStore.id;
+    var stage = 'picker';
     try {
-      final picked = await ImagePicker().pickImage(
-        source: source,
-        imageQuality: 65,
-        maxWidth: 768,
-        maxHeight: 768,
-      );
+      final picked = widget.pickPhoto != null
+          ? await widget.pickPhoto!(source)
+          : await ImagePicker().pickImage(
+              source: source,
+              imageQuality: 65,
+              maxWidth: 768,
+              maxHeight: 768,
+            );
       if (picked == null || !mounted) return;
+      stage = 'read';
       final bytes = await picked.readAsBytes();
       if (!mounted || BabyProfileStore.id != babyId) return;
-      setState(() {
-        _photos.insert(
-          0,
-          _MemoryPhoto(
-            title: 'New memory',
-            dateLabel: DateTime.now().toIso8601String().split('T').first,
-            accentColor: _accentCycle[_photos.length % _accentCycle.length],
-            bytes: bytes,
-            isThisMonth: true,
-          ),
-        );
-      });
-      await saveTracker();
-    } catch (_) {
+      if (bytes.length > 2000000) {
+        _showToast('Choose a smaller photo (under 2 MB).');
+        return;
+      }
+      stage = 'details';
+      final details = await _photoDetails();
+      if (details == null || !mounted || BabyProfileStore.id != babyId) return;
+      stage = 'prepare';
+      final next = encodeEntries()
+        ..insert(0, {
+          'id': DateTime.now().microsecondsSinceEpoch.toString(),
+          ...details,
+          'photo_data': base64Encode(bytes),
+          'favorite': false,
+        });
+      if (await _commit(next)) _showToast('Memory saved.');
+    } catch (error) {
       if (!mounted) return;
-      _showToast("Couldn't access the camera or photo library.");
+      debugPrint('Memory add failed: stage=$stage type=${error.runtimeType}');
+      _showToast(switch (stage) {
+        'picker' =>
+          "Couldn't open the camera or photo library. Check phone permissions.",
+        'read' => 'Could not read this photo. Try another image.',
+        _ =>
+          'Could not prepare this memory. Restart the app and retry. Your saved photos are unchanged.',
+      });
     }
   }
 
-  void _toggleFavorite(_MemoryPhoto photo) {
-    if (!trackerReady) return;
-    setState(() => photo.isFavorite = !photo.isFavorite);
-    saveTracker();
+  Future<bool> _toggleFavorite(_MemoryPhoto photo) async {
+    final next = encodeEntries();
+    final index = next.indexWhere((r) => r['id'] == photo.id);
+    if (index < 0) return false;
+    next[index]['favorite'] = next[index]['favorite'] != true;
+    return _commit(next);
   }
 
-  void _deletePhoto(_MemoryPhoto photo) {
-    if (!trackerReady) return;
-    setState(() => _photos.remove(photo));
-    saveTracker();
+  Future<bool> _deletePhoto(_MemoryPhoto photo) async {
+    if (!_canEdit) return false;
+    final babyId = BabyProfileStore.id;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete memory?'),
+        content: const Text('This removes the saved photo for this baby.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted || BabyProfileStore.id != babyId)
+      return false;
+    return _commit(encodeEntries()..removeWhere((r) => r['id'] == photo.id));
+  }
+
+  Future<Map<String, dynamic>?> _photoDetails([_MemoryPhoto? photo]) async {
+    return showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (_) => _MemoryDetailsDialog(
+        title: photo?.title,
+        date: photo == null
+            ? DateUtils.dateOnly(DateTime.now())
+            : _photoDate(photo) ?? DateUtils.dateOnly(DateTime.now()),
+      ),
+    );
+  }
+
+  Future<bool> _editPhoto(_MemoryPhoto photo) async {
+    if (!_canEdit) return false;
+    final id = BabyProfileStore.id;
+    final details = await _photoDetails(photo);
+    if (details == null || !mounted || BabyProfileStore.id != id) return false;
+    final next = encodeEntries();
+    final index = next.indexWhere((r) => r['id'] == photo.id);
+    if (index < 0) return false;
+    next[index] = {...next[index], ...details};
+    return _commit(next);
   }
 
   void _openPreview(_MemoryPhoto photo) {
+    final babyId = BabyProfileStore.id;
     showDialog<void>(
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.88),
       builder: (context) => _PhotoPreviewDialog(
         photo: photo,
-        onToggleFavorite: () => _toggleFavorite(photo),
-        onDelete: () {
-          _deletePhoto(photo);
-          Navigator.of(context).pop();
-        },
+        canEdit: _canEdit,
+        onEdit: () async =>
+            BabyProfileStore.id == babyId && await _editPhoto(photo),
+        onToggleFavorite: () async =>
+            BabyProfileStore.id == babyId && await _toggleFavorite(photo),
+        onDelete: () async =>
+            BabyProfileStore.id == babyId && await _deletePhoto(photo),
       ),
     );
   }
@@ -293,7 +410,11 @@ class _GalleryScreenState extends State<GalleryScreen>
         : 2;
     final totalCount = _photos.length;
     final favoriteCount = _photos.where((p) => p.isFavorite).length;
-    final thisMonthCount = _photos.where((p) => p.isThisMonth).length;
+    final thisMonthCount = _photos.where(_inMonth).length;
+    final visible = _visiblePhotos;
+    final gridPhotos = _selectedFilter == 0 && visible.isNotEmpty
+        ? visible.skip(1).toList()
+        : visible;
 
     return Scaffold(
       backgroundColor: AuthPalette.warmCream,
@@ -348,45 +469,60 @@ class _GalleryScreenState extends State<GalleryScreen>
                             ),
                           ),
                           const SizedBox(height: 18),
-                          if (_photos.isNotEmpty)
+                          if (!trackerReady) const LinearProgressIndicator(),
+                          if (_saving) const LinearProgressIndicator(),
+                          if (_selectedFilter == 0 && visible.isNotEmpty)
                             FadeTransition(
                               opacity: _heroFade,
                               child: ScaleTransition(
                                 scale: _heroScale,
-                                child: _MemoryHeroCard(
-                                  photo: _photos.first,
-                                  onToggleFavorite: () =>
-                                      _toggleFavorite(_photos.first),
+                                child: GestureDetector(
+                                  onTap: () => _openPreview(visible.first),
+                                  child: _MemoryHeroCard(
+                                    photo: visible.first,
+                                    canEdit: _canEdit,
+                                    onToggleFavorite: () =>
+                                        _toggleFavorite(visible.first),
+                                  ),
                                 ),
                               ),
                             ),
                           const SizedBox(height: 20),
-                          _GalleryActionsRow(
-                            onAddPhoto: _handleAddPhotoTap,
-                            onAddVideo: () =>
-                                _showToast('Video memories are coming soon 🌙'),
-                            onCamera: () => _pickImage(ImageSource.camera),
-                            onGallery: () => _pickImage(ImageSource.gallery),
-                          ),
+                          if (BabyProfileStore.data['access_role'] != 'viewer')
+                            AuthCard(
+                              child: _GalleryActionChip(
+                                label: 'Add Photo',
+                                icon: Icons.add_photo_alternate_rounded,
+                                color: AuthPalette.softCoral,
+                                onTap: _canEdit ? _handleAddPhotoTap : null,
+                              ),
+                            ),
                           const SizedBox(height: 20),
                           _FilterChipsRow(
                             filters: _filters,
                             selectedIndex: _selectedFilter,
-                            onSelected: (index) =>
-                                setState(() => _selectedFilter = index),
+                            onSelected: (index) => setState(() {
+                              _selectedFilter = index;
+                              _visibleLimit = 24;
+                            }),
                           ),
                           const SizedBox(height: 22),
                           const _SectionHeading(title: 'Your Memories'),
                           const SizedBox(height: 10),
-                          if (_photos.isEmpty)
-                            _EmptyGalleryState(
-                              onAddFirstPhoto: _handleAddPhotoTap,
+                          if (trackerReady && _photos.isEmpty)
+                            const _EmptyGalleryState()
+                          else if (visible.isEmpty && trackerReady)
+                            const AuthCard(
+                              child: Text('No memories match this filter.'),
                             )
-                          else
+                          else if (gridPhotos.isNotEmpty)
                             GridView.builder(
                               shrinkWrap: true,
                               physics: const NeverScrollableScrollPhysics(),
-                              itemCount: _photos.length,
+                              itemCount: math.min(
+                                gridPhotos.length,
+                                _visibleLimit,
+                              ),
                               gridDelegate:
                                   SliverGridDelegateWithFixedCrossAxisCount(
                                     crossAxisCount: crossAxisCount,
@@ -395,13 +531,24 @@ class _GalleryScreenState extends State<GalleryScreen>
                                     childAspectRatio: 1,
                                   ),
                               itemBuilder: (context, index) {
-                                final photo = _photos[index];
+                                final photo = gridPhotos[index];
                                 return _GalleryThumbnail(
                                   photo: photo,
                                   onTap: () => _openPreview(photo),
                                 );
                               },
                             ),
+                          if (gridPhotos.length > _visibleLimit) ...[
+                            const SizedBox(height: 12),
+                            AuthOutlineButton(
+                              label: 'Show more photos',
+                              icon: Icons.expand_more_rounded,
+                              accent: AuthPalette.softCoral,
+                              isLoading: false,
+                              onPressed: () =>
+                                  setState(() => _visibleLimit += 24),
+                            ),
+                          ],
                           const SizedBox(height: 22),
                           _MemoryStatsCard(
                             totalCount: totalCount,
@@ -576,10 +723,15 @@ class _SectionHeading extends StatelessWidget {
 }
 
 class _MemoryHeroCard extends StatelessWidget {
-  const _MemoryHeroCard({required this.photo, required this.onToggleFavorite});
+  const _MemoryHeroCard({
+    required this.photo,
+    required this.onToggleFavorite,
+    required this.canEdit,
+  });
 
   final _MemoryPhoto photo;
   final VoidCallback onToggleFavorite;
+  final bool canEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -615,14 +767,15 @@ class _MemoryHeroCard extends StatelessWidget {
                 fit: StackFit.expand,
                 children: [
                   _PhotoSurface(photo: photo, iconSize: 48),
-                  Positioned(
-                    top: 10,
-                    right: 10,
-                    child: _FavoriteBadge(
-                      isFavorite: photo.isFavorite,
-                      onTap: onToggleFavorite,
+                  if (canEdit)
+                    Positioned(
+                      top: 10,
+                      right: 10,
+                      child: _FavoriteBadge(
+                        isFavorite: photo.isFavorite,
+                        onTap: onToggleFavorite,
+                      ),
                     ),
-                  ),
                 ],
               ),
             ),
@@ -675,11 +828,15 @@ class _PhotoSurface extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (photo.bytes != null) {
-      return Image.memory(photo.bytes!, fit: BoxFit.cover);
-    }
-    final file = photo.file;
-    if (file != null) {
-      return Image.file(file, fit: BoxFit.cover);
+      return Image.memory(
+        photo.bytes!,
+        fit: BoxFit.cover,
+        cacheWidth: iconSize >= 72 ? null : 768,
+        errorBuilder: (_, error, stack) => ColoredBox(
+          color: photo.accentColor,
+          child: const Center(child: Icon(Icons.broken_image_outlined)),
+        ),
+      );
     }
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -736,56 +893,6 @@ class _FavoriteBadge extends StatelessWidget {
   }
 }
 
-class _GalleryActionsRow extends StatelessWidget {
-  const _GalleryActionsRow({
-    required this.onAddPhoto,
-    required this.onAddVideo,
-    required this.onCamera,
-    required this.onGallery,
-  });
-
-  final VoidCallback onAddPhoto;
-  final VoidCallback onAddVideo;
-  final VoidCallback onCamera;
-  final VoidCallback onGallery;
-
-  @override
-  Widget build(BuildContext context) {
-    return AuthCard(
-      child: Wrap(
-        spacing: 10,
-        runSpacing: 10,
-        children: [
-          _GalleryActionChip(
-            icon: Icons.add_photo_alternate_rounded,
-            label: 'Add Photo',
-            color: AuthPalette.softCoral,
-            onTap: onAddPhoto,
-          ),
-          _GalleryActionChip(
-            icon: Icons.videocam_outlined,
-            label: 'Add Video',
-            color: AuthPalette.lavenderMist,
-            onTap: onAddVideo,
-          ),
-          _GalleryActionChip(
-            icon: Icons.photo_camera_outlined,
-            label: 'Camera',
-            color: AuthPalette.powderBlue,
-            onTap: onCamera,
-          ),
-          _GalleryActionChip(
-            icon: Icons.photo_library_outlined,
-            label: 'Gallery',
-            color: AuthPalette.mint,
-            onTap: onGallery,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _GalleryActionChip extends StatelessWidget {
   const _GalleryActionChip({
     required this.icon,
@@ -797,7 +904,7 @@ class _GalleryActionChip extends StatelessWidget {
   final IconData icon;
   final String label;
   final Color color;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1010,20 +1117,44 @@ class _PhotoPreviewDialog extends StatefulWidget {
     required this.photo,
     required this.onToggleFavorite,
     required this.onDelete,
+    required this.onEdit,
+    required this.canEdit,
   });
 
   final _MemoryPhoto photo;
-  final VoidCallback onToggleFavorite;
-  final VoidCallback onDelete;
+  final Future<bool> Function() onToggleFavorite;
+  final Future<bool> Function() onDelete;
+  final Future<bool> Function() onEdit;
+  final bool canEdit;
 
   @override
   State<_PhotoPreviewDialog> createState() => _PhotoPreviewDialogState();
 }
 
 class _PhotoPreviewDialogState extends State<_PhotoPreviewDialog> {
-  void _handleToggleFavorite() {
-    widget.onToggleFavorite();
-    setState(() {});
+  bool _busy = false;
+  late bool _favorite = widget.photo.isFavorite;
+  Future<void> _handleToggleFavorite() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final saved = await widget.onToggleFavorite();
+    if (mounted)
+      setState(() {
+        if (saved) _favorite = !_favorite;
+        _busy = false;
+      });
+  }
+
+  Future<void> _action(Future<bool> Function() action) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final saved = await action();
+    if (!mounted) return;
+    if (saved) {
+      Navigator.pop(context);
+    } else {
+      setState(() => _busy = false);
+    }
   }
 
   @override
@@ -1045,16 +1176,17 @@ class _PhotoPreviewDialogState extends State<_PhotoPreviewDialog> {
                     onTap: () => Navigator.of(context).pop(),
                   ),
                   const Spacer(),
-                  _DarkCircleButton(
-                    icon: photo.isFavorite
-                        ? Icons.favorite_rounded
-                        : Icons.favorite_border_rounded,
-                    label: photo.isFavorite
-                        ? 'Remove from favorites'
-                        : 'Add to favorites',
-                    iconColor: AuthPalette.softCoral,
-                    onTap: _handleToggleFavorite,
-                  ),
+                  if (widget.canEdit)
+                    _DarkCircleButton(
+                      icon: _favorite
+                          ? Icons.favorite_rounded
+                          : Icons.favorite_border_rounded,
+                      label: _favorite
+                          ? 'Remove from favorites'
+                          : 'Add to favorites',
+                      iconColor: AuthPalette.softCoral,
+                      onTap: _busy ? null : _handleToggleFavorite,
+                    ),
                 ],
               ),
               const SizedBox(height: 14),
@@ -1082,13 +1214,23 @@ class _PhotoPreviewDialogState extends State<_PhotoPreviewDialog> {
                 ),
               ),
               const SizedBox(height: 18),
-              AuthOutlineButton(
-                label: 'Delete Memory',
-                icon: Icons.delete_outline_rounded,
-                accent: AuthPalette.error,
-                isLoading: false,
-                onPressed: widget.onDelete,
-              ),
+              if (widget.canEdit)
+                AuthOutlineButton(
+                  label: 'Edit Memory',
+                  icon: Icons.edit_outlined,
+                  accent: AuthPalette.powderBlue,
+                  isLoading: false,
+                  onPressed: _busy ? null : () => _action(widget.onEdit),
+                ),
+              if (widget.canEdit) const SizedBox(height: 10),
+              if (widget.canEdit)
+                AuthOutlineButton(
+                  label: 'Delete Memory',
+                  icon: Icons.delete_outline_rounded,
+                  accent: AuthPalette.error,
+                  isLoading: _busy,
+                  onPressed: _busy ? null : () => _action(widget.onDelete),
+                ),
             ],
           ),
         ),
@@ -1107,7 +1249,7 @@ class _DarkCircleButton extends StatelessWidget {
 
   final IconData icon;
   final String label;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   final Color iconColor;
 
   @override
@@ -1225,9 +1367,7 @@ class _StatBlock extends StatelessWidget {
 }
 
 class _EmptyGalleryState extends StatelessWidget {
-  const _EmptyGalleryState({required this.onAddFirstPhoto});
-
-  final VoidCallback onAddFirstPhoto;
+  const _EmptyGalleryState();
 
   @override
   Widget build(BuildContext context) {
@@ -1274,12 +1414,6 @@ class _EmptyGalleryState extends StatelessWidget {
               height: 1.4,
             ),
           ),
-          const SizedBox(height: 16),
-          AuthPrimaryButton(
-            label: 'Add First Photo',
-            isLoading: false,
-            onPressed: onAddFirstPhoto,
-          ),
         ],
       ),
     );
@@ -1287,6 +1421,73 @@ class _EmptyGalleryState extends StatelessWidget {
 }
 
 /// Pastel bottom sheet offering Camera / Gallery as the photo source.
+class _MemoryDetailsDialog extends StatefulWidget {
+  const _MemoryDetailsDialog({required this.title, required this.date});
+  final String? title;
+  final DateTime date;
+  @override
+  State<_MemoryDetailsDialog> createState() => _MemoryDetailsDialogState();
+}
+
+class _MemoryDetailsDialogState extends State<_MemoryDetailsDialog> {
+  late final _title = TextEditingController(text: widget.title ?? '');
+  late DateTime _date = widget.date.isAfter(DateTime.now())
+      ? DateUtils.dateOnly(DateTime.now())
+      : widget.date;
+  @override
+  void dispose() {
+    _title.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+    title: Text(widget.title == null ? 'Add memory' : 'Edit memory'),
+    content: SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _title,
+            maxLength: 100,
+            decoration: InputDecoration(labelText: 'Memory title (optional)'),
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.calendar_today_outlined),
+            label: Text(DateFormat('d MMM yyyy').format(_date)),
+            onPressed: () async {
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: _date,
+                firstDate: DateTime(1900),
+                lastDate: DateUtils.dateOnly(DateTime.now()),
+              );
+              if (picked != null && mounted) setState(() => _date = picked);
+            },
+          ),
+        ],
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancel'),
+      ),
+      TextButton(
+        onPressed: () {
+          Navigator.pop(context, {
+            'title': _title.text.trim().isEmpty ? 'Memory' : _title.text.trim(),
+            'date': DateFormat('yyyy-MM-dd').format(_date),
+          });
+        },
+        child: const Text('Save'),
+      ),
+    ],
+  );
+}
+
 class _PhotoSourceSheet extends StatelessWidget {
   const _PhotoSourceSheet();
 

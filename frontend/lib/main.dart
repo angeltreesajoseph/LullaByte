@@ -9,8 +9,11 @@ import 'core/di/providers.dart';
 import 'core/error/error_handler.dart';
 import 'core/logger/app_logger.dart';
 import 'core/router/app_router.dart';
+import 'core/router/route_paths.dart';
 import 'core/theme/app_theme.dart';
-import 'core/theme/theme_mode_provider.dart';
+import 'features/family_sharing/application/shared_care_notifications.dart';
+import 'features/notifications/application/notification_navigation.dart';
+import 'screens/splash_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -20,12 +23,16 @@ Future<void> main() async {
   errorHandler.install();
   ErrorWidget.builder = ErrorHandler.buildErrorWidget;
 
-  // Firebase Authentication and Cloud Messaging (SAD Section 7.9, 12.2) are
-  // not yet configured for this platform (no google-services.json /
-  // firebase_options.dart — see SAD Section 16.2, follow-up step). The
-  // initialization call is wired here so the app boots cleanly once a
-  // Firebase project is attached, but a missing/failed configuration must
-  // never prevent the rest of the app foundation from running.
+  // Draw the complete brand screen before plugin initialization, not after it.
+  runApp(MaterialApp(
+    debugShowCheckedModeBanner: false,
+    theme: AppTheme.light,
+    themeMode: ThemeMode.light,
+    home: const BrandedLoadingScreen(),
+  ));
+  await WidgetsBinding.instance.endOfFrame;
+
+  // A missing platform configuration must not prevent app startup.
   try {
     await Firebase.initializeApp();
     bootstrapLogger.info('Firebase initialized.');
@@ -37,9 +44,7 @@ Future<void> main() async {
     );
   }
 
-  // Local notification plugin bootstrap only (SAD Section 7.9, 12.11).
-  // No notification channels or scheduled notifications are registered
-  // yet — that is Notification System feature work (SRS Section 10.17).
+  // Register tap handling before reminders or foreground alerts are shown.
   try {
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
     const initSettings = InitializationSettings(
@@ -50,7 +55,15 @@ Future<void> main() async {
         requestSoundPermission: false,
       ),
     );
-    await FlutterLocalNotificationsPlugin().initialize(settings: initSettings);
+    final localNotifications = FlutterLocalNotificationsPlugin();
+    await localNotifications.initialize(
+      settings: initSettings,
+      onDidReceiveNotificationResponse: (response) =>
+          NotificationNavigation.local(response.payload),
+    );
+    final launch = await localNotifications.getNotificationAppLaunchDetails();
+    if (launch?.didNotificationLaunchApp == true)
+      NotificationNavigation.local(launch?.notificationResponse?.payload);
     bootstrapLogger.info('Local notifications plugin initialized.');
   } catch (error, stackTrace) {
     bootstrapLogger.warning(
@@ -61,6 +74,15 @@ Future<void> main() async {
   }
 
   final sharedPreferences = await SharedPreferences.getInstance();
+  try {
+    await SharedCareNotifications.start();
+  } catch (error, stack) {
+    bootstrapLogger.warning(
+      'Shared care notifications unavailable; enable them from Family Sharing to retry.',
+      error,
+      stack,
+    );
+  }
 
   runApp(
     ProviderScope(
@@ -72,24 +94,49 @@ Future<void> main() async {
   );
 }
 
-/// Application root widget: wires Riverpod-provided [GoRouter] and
-/// [ThemeMode] into a [MaterialApp.router] using the Light/Dark themes
-/// defined in `core/theme/app_theme.dart` (SAD Section 6.3, 6.5).
+/// Application root. Keep the pastel interface in light mode, including
+/// dialogs and form fields, regardless of device or legacy theme preferences.
 class LullaByteApp extends ConsumerWidget {
   const LullaByteApp({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(goRouterProvider);
-    final themeMode = ref.watch(themeModeProvider);
 
     return MaterialApp.router(
       title: 'LullaByte',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
-      darkTheme: AppTheme.dark,
-      themeMode: themeMode,
-      routerConfig: router,
+      themeMode: ThemeMode.light,
+      routerConfig: RouterConfig(
+        routeInformationProvider: router.routeInformationProvider,
+        routeInformationParser: router.routeInformationParser,
+        routerDelegate: router.routerDelegate,
+        backButtonDispatcher: _AppBackDispatcher(router),
+      ),
     );
+  }
+}
+
+class _AppBackDispatcher extends RootBackButtonDispatcher {
+  _AppBackDispatcher(this.router);
+
+  final GoRouter router;
+
+  @override
+  Future<bool> didPopRoute() async {
+    // First allow normal pops, dialogs and unsaved-form guards to handle Back.
+    if (await super.didPopRoute()) return true;
+    final path = router.routeInformationProvider.value.uri.path;
+    if ({
+      RoutePaths.splash,
+      RoutePaths.onboarding,
+      RoutePaths.login,
+      RoutePaths.register,
+      RoutePaths.babyRegistration,
+      RoutePaths.dashboard,
+    }.contains(path)) return false;
+    router.go(RoutePaths.dashboard);
+    return true;
   }
 }

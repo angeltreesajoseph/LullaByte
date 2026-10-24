@@ -1,3 +1,4 @@
+import '../../../core/network/care_dio.dart';
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -7,16 +8,29 @@ import 'baby_profile_store.dart';
 /// Each tracker reads and writes only the active owner's baby ID.
 mixin ProfileTracker<T extends StatefulWidget> on State<T> {
   String get trackerKind;
+
+  /// Append-only server endpoints can start from an authorized session snapshot.
+  /// Whole-list editors still wait for a fresh revision by default.
+  bool get allowSnapshotReady => false;
   List<Map<String, dynamic>> encodeEntries();
   void decodeEntries(List<Map<String, dynamic>> entries);
   bool trackerReady = false;
   String? _loadedBabyId;
   Future<void> _writes = Future.value();
+  int _readVersion = 0;
+
+  Future<Dio> createTrackerClient() => _client();
+
+  /// A newer server mutation must not be overwritten by an older in-flight GET.
+  void acceptServerTrackerMutation() {
+    _readVersion++;
+    trackerReady = true;
+  }
 
   Future<Dio> _client() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) throw StateError('Please sign in.');
-    return Dio(
+    return careDio(
       BaseOptions(
         baseUrl: AppConfig.apiBaseUrl,
         headers: {'Authorization': 'Bearer ${await user.getIdToken()}'},
@@ -38,17 +52,31 @@ mixin ProfileTracker<T extends StatefulWidget> on State<T> {
   }
 
   Future<void> _loadTracker() async {
+    final readVersion = ++_readVersion;
     final id = BabyProfileStore.id;
     _loadedBabyId = id;
     trackerReady = false;
-    if (mounted) setState(() => decodeEntries([]));
+    final snapshot = BabyProfileStore.snapshotFor(id);
+    trackerReady =
+        allowSnapshotReady &&
+        snapshot != null &&
+        const {'owner', 'caregiver'}.contains(snapshot['access_role']);
+    final records =
+        (snapshot?['tracker_data'] as Map?)?[trackerKind] as List? ?? [];
+    if (mounted)
+      setState(
+        () => decodeEntries(
+          records.map((r) => Map<String, dynamic>.from(r as Map)).toList(),
+        ),
+      );
     if (id == null) return;
     try {
-      final client = await _client();
+      final client = await createTrackerClient();
       final result = await client.get<Map<String, dynamic>>('/babies/$id');
-      if (!mounted || BabyProfileStore.id != id) return;
+      if (!mounted || BabyProfileStore.id != id || readVersion != _readVersion)
+        return;
       final data = result.data!['data'] as Map;
-      BabyProfileStore.data = Map<String, dynamic>.from(data);
+      BabyProfileStore.rememberSnapshot(Map<String, dynamic>.from(data));
       final records =
           (data['tracker_data'] as Map?)?[trackerKind] as List? ?? [];
       setState(() {
@@ -57,8 +85,15 @@ mixin ProfileTracker<T extends StatefulWidget> on State<T> {
         );
         trackerReady = true;
       });
-    } catch (_) {
-      if (mounted && BabyProfileStore.id == id) {
+    } catch (error) {
+      if (mounted && BabyProfileStore.id == id && readVersion == _readVersion) {
+        if (error is DioException &&
+            const {401, 403, 404}.contains(error.response?.statusCode)) {
+          setState(() {
+            trackerReady = false;
+            decodeEntries([]);
+          });
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(

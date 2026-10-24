@@ -1,3 +1,4 @@
+import '../../../../core/network/care_dio.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -12,6 +13,12 @@ import 'package:record/record.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../../data/analysis_error_message.dart';
+import '../../application/cry_completion_feedback.dart';
+import '../widgets/cry_analysis_result.dart';
+import '../widgets/cry_recording_card.dart';
+import '../../domain/cry_history_records.dart';
+import 'cry_history_screen.dart';
 import '../../../../core/config/app_config.dart';
 import '../../../baby_management/application/baby_profile_store.dart';
 import '../../../baby_management/application/profile_tracker.dart';
@@ -49,12 +56,34 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
   String? _savedAudioPath;
   String? _playbackPath;
   Map<String, dynamic>? _analysis;
+  String? _analysisError;
+  bool _deletingAudio = false;
+  PlayerState _playState = PlayerState.stopped;
+  String? _playingKey;
+  Duration _position = Duration.zero;
+  Duration _duration = Duration.zero;
+  final List<StreamSubscription<dynamic>> _playSubscriptions = [];
+  String _historyKey(Map<String, dynamic> entry) =>
+      CryHistoryRecords.key(entry);
+  String? _historyBabyId;
+
   @override
   String get trackerKind => 'cry';
+  @override
+  bool get allowSnapshotReady => true;
   @override
   List<Map<String, dynamic>> encodeEntries() => List.of(_recordings);
   @override
   void decodeEntries(List<Map<String, dynamic>> entries) {
+    if (_historyBabyId != BabyProfileStore.id) {
+      _historyBabyId = BabyProfileStore.id;
+      _analysis = null;
+      _analysisError = null;
+      _savedAudioPath = null;
+      _playingKey = null;
+      _state = _AnalyzerState.idle;
+      unawaited(_player.stop());
+    }
     _recordings
       ..clear()
       ..addAll(entries);
@@ -63,9 +92,12 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
   Future<Dio> _cryClient() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) throw StateError('Sign in required');
-    return Dio(
+    return careDio(
       BaseOptions(
         baseUrl: AppConfig.apiBaseUrl,
+        connectTimeout: const Duration(seconds: 60),
+        sendTimeout: const Duration(seconds: 60),
+        receiveTimeout: const Duration(minutes: 3),
         headers: {'Authorization': 'Bearer ${await user.getIdToken()}'},
       ),
     );
@@ -112,7 +144,11 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
       if (accepted != true || !mounted) return;
       _uploadConsent = true;
     }
-    setState(() => _savingAudio = true);
+    setState(() {
+      _savingAudio = true;
+      _analysisError = null;
+      _state = _AnalyzerState.analyzing;
+    });
     try {
       final bytes = await File(path).readAsBytes();
       if (bytes.length > 2000000) throw StateError('Recording exceeds 2 MB');
@@ -126,44 +162,82 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
         },
       );
       if (!mounted || BabyProfileStore.id != id) return;
+      acceptServerTrackerMutation();
       _savedAudioPath = path;
-      _analysis = Map<String, dynamic>.from(
-        response.data['data']['entry'] as Map,
-      );
-      setState(
-        () => decodeEntries(
+      setState(() {
+        _analysis = Map<String, dynamic>.from(
+          response.data['data']['entry'] as Map,
+        );
+        _state = _AnalyzerState.resultReady;
+        _savingAudio = false;
+        decodeEntries(
           (response.data['data']['history'] as List)
               .map((e) => Map<String, dynamic>.from(e as Map))
               .toList(),
+        );
+      });
+      unawaited(
+        cryCompletionFeedback(
+          visible:
+              ModalRoute.of(context)?.isCurrent == true &&
+              WidgetsBinding.instance.lifecycleState ==
+                  AppLifecycleState.resumed,
         ),
       );
-      _showToast('Experimental analysis saved. Not a diagnosis.');
+      _showToast('Analysis ready and saved. Check the result below.');
     } on DioException catch (error) {
-      final detail = error.response?.data;
-      if (mounted)
-        _showToast(
-          detail is Map && detail['detail'] is String
-              ? detail['detail'] as String
-              : 'Could not connect to analyzer. Retry when the backend is ready.',
-        );
+      final message = error.type == DioExceptionType.receiveTimeout
+          ? 'Analysis timed out. The server may still finish saving it. Reopen history before retrying.'
+          : cryAnalysisErrorMessage(
+              error.response?.data,
+              error.response?.statusCode,
+            );
+      if (mounted) {
+        setState(() => _analysisError = message);
+        _showToast(message);
+      }
     } catch (_) {
-      if (mounted)
-        _showToast(
-          'Could not analyze audio. Use a recording under 2 MB and 30 seconds.',
-        );
+      if (mounted) {
+        const message =
+            'Could not analyze audio. Use a recording under 2 MB and 30 seconds.';
+        setState(() => _analysisError = message);
+        _showToast(message);
+      }
     } finally {
-      if (mounted) setState(() => _savingAudio = false);
+      if (mounted)
+        setState(() {
+          _savingAudio = false;
+          if (_state == _AnalyzerState.analyzing)
+            _state = _AnalyzerState.audioReady;
+        });
     }
   }
 
   Future<void> _playSaved(Map<String, dynamic> entry) async {
+    if (_savingAudio || _deletingAudio || _state == _AnalyzerState.recording)
+      return;
     try {
+      final key = _historyKey(entry);
+      if (_playingKey == key && _playState == PlayerState.playing) {
+        await _player.pause();
+        return;
+      }
+      if (_playingKey == key && _playState == PlayerState.paused) {
+        await _player.resume();
+        return;
+      }
       final directory = await getTemporaryDirectory();
       final file = File(
         '${directory.path}${Platform.pathSeparator}cry_playback.${entry['format']}',
       );
       _playbackPath = file.path;
       await _player.stop();
+      if (!mounted) return;
+      setState(() {
+        _playingKey = key;
+        _position = Duration.zero;
+        _duration = Duration.zero;
+      });
       await file.writeAsBytes(base64Decode(entry['audio_data'] as String));
       await _player.play(DeviceFileSource(file.path));
     } catch (_) {
@@ -172,23 +246,96 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
   }
 
   Future<void> _deleteSaved(Map<String, dynamic> entry) async {
-    if (_savingAudio || !trackerReady) return;
+    if (_savingAudio || _deletingAudio || !trackerReady) return;
     final id = BabyProfileStore.id;
     if (id == null) return;
-    setState(() => _savingAudio = true);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete recording?'),
+        content: const Text('This removes the saved audio and its analysis.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted || BabyProfileStore.id != id) return;
+    setState(() => _deletingAudio = true);
     try {
       final entries = _recordings
-          .where((item) => !identical(item, entry))
+          .where((item) => _historyKey(item) != _historyKey(entry))
           .toList();
       await _player.stop();
       final client = await _cryClient();
       await client.put('/babies/$id/trackers/cry', data: entries);
       if (mounted && BabyProfileStore.id == id)
-        setState(() => decodeEntries(entries));
+        setState(() {
+          decodeEntries(entries);
+          if (_analysis != null &&
+              _historyKey(_analysis!) == _historyKey(entry)) {
+            _analysis = null;
+            _savedAudioPath = null;
+            _state = _AnalyzerState.audioReady;
+          }
+        });
     } catch (_) {
       if (mounted) _showToast('Could not delete recording. Please retry.');
     } finally {
-      if (mounted) setState(() => _savingAudio = false);
+      if (mounted) setState(() => _deletingAudio = false);
+    }
+  }
+
+  Future<void> _openHistory() async {
+    final id = BabyProfileStore.id;
+    if (id == null ||
+        _savingAudio ||
+        _deletingAudio ||
+        _inputBusy ||
+        _state == _AnalyzerState.recording)
+      return;
+    await _player.stop();
+    if (!mounted) return;
+    setState(() {
+      _playingKey = null;
+      _position = Duration.zero;
+      _duration = Duration.zero;
+    });
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const CryHistoryScreen()));
+    if (!mounted || BabyProfileStore.id != id) return;
+    try {
+      final client = await _cryClient();
+      final response = await client.get('/babies/$id');
+      if (!mounted || BabyProfileStore.id != id) return;
+      final rows =
+          ((response.data['data']['tracker_data'] as Map?)?['cry'] as List? ??
+                  [])
+              .map((r) => Map<String, dynamic>.from(r as Map))
+              .toList();
+      setState(() {
+        decodeEntries(rows);
+        if (_analysis != null &&
+            !rows.any((r) => _historyKey(r) == _historyKey(_analysis!))) {
+          _analysis = null;
+          _savedAudioPath = null;
+          _state = _audioPath == null
+              ? _AnalyzerState.idle
+              : _AnalyzerState.audioReady;
+        }
+      });
+    } catch (_) {
+      if (mounted)
+        _showToast(
+          'Could not refresh recent recordings. Reopen history to retry.',
+        );
     }
   }
 
@@ -213,6 +360,21 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
   @override
   void initState() {
     super.initState();
+    _playSubscriptions.add(
+      _player.onPlayerStateChanged.listen((value) {
+        if (mounted) setState(() => _playState = value);
+      }),
+    );
+    _playSubscriptions.add(
+      _player.onPositionChanged.listen((value) {
+        if (mounted) setState(() => _position = value);
+      }),
+    );
+    _playSubscriptions.add(
+      _player.onDurationChanged.listen((value) {
+        if (mounted) setState(() => _duration = value);
+      }),
+    );
     startTracker();
     _entranceController = AnimationController(
       vsync: this,
@@ -244,6 +406,9 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
   @override
   void dispose() {
     stopTracker();
+    for (final subscription in _playSubscriptions) {
+      unawaited(subscription.cancel());
+    }
     unawaited(_cleanUpAudio());
     _entranceController.dispose();
     _breatheController.dispose();
@@ -272,12 +437,9 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
     _AnalyzerState.recording => 'Listening…',
     _AnalyzerState.analyzing => 'Analyzing audio…',
     _AnalyzerState.audioReady =>
-      _savingAudio
-          ? 'Analyzing experimental sound match…'
-          : _analysis?['result'] as String? ??
-                'Audio ready for experimental analysis',
+      _savingAudio ? 'Analysing audio…' : 'Audio ready',
     _AnalyzerState.error => 'Audio input error',
-    _AnalyzerState.resultReady => 'Result ready',
+    _AnalyzerState.resultReady => 'Analysis complete',
   };
 
   String _formatDuration(int seconds) {
@@ -308,7 +470,7 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
   }
 
   Future<void> _handleMicTap() async {
-    if (_inputBusy || _savingAudio) return;
+    if (_inputBusy || _savingAudio || _deletingAudio) return;
     _inputBusy = true;
     try {
       switch (_state) {
@@ -403,24 +565,30 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
   }
 
   Future<void> _handleUpload() async {
-    _analysis = null;
-    if (!trackerReady || _savingAudio || BabyProfileStore.id == null) return;
+    if (!trackerReady ||
+        _savingAudio ||
+        _deletingAudio ||
+        _inputBusy ||
+        BabyProfileStore.id == null)
+      return;
     _recordingBabyId = BabyProfileStore.id;
+    final babyId = _recordingBabyId;
     if (_state == _AnalyzerState.recording ||
         _state == _AnalyzerState.analyzing) {
       return;
     }
+    _inputBusy = true;
     try {
       final picked = await FilePicker.pickFile(
         type: FileType.custom,
         allowedExtensions: _supportedExtensions.toList(),
       );
-      if (picked == null || !mounted) return;
+      if (picked == null || !mounted || BabyProfileStore.id != babyId) return;
 
       final path = picked.path;
       final extension = _extensionOf(picked.name);
       if (!_supportedExtensions.contains(extension)) {
-        _setInputError('Please select a WAV, MP3, or M4A audio file.');
+        _setInputError('Please select a WAV, MP3, M4A, or OGG audio file.');
         return;
       }
       if (!await _isValidAudioFile(path)) {
@@ -428,13 +596,19 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
         return;
       }
 
+      await _player.stop();
       await _discardOwnedAudioFile();
+      _analysis = null;
+      _analysisError = null;
+      _savedAudioPath = null;
       _audioPath = path;
       _ownsAudioFile = false;
       await _markAudioReady();
       await _saveAudio();
     } catch (_) {
       _setInputError('Unable to open this audio file. Please try again.');
+    } finally {
+      _inputBusy = false;
     }
   }
 
@@ -477,7 +651,11 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
   }
 
   Future<void> _handleDelete() async {
-    _analysis = null;
+    if (_savingAudio || _deletingAudio) return;
+    if (_analysis != null) {
+      await _deleteSaved(_analysis!);
+      if (!mounted || _analysis != null) return;
+    }
     await _player.stop();
     _recordingTimer?.cancel();
     await _discardOwnedAudioFile();
@@ -492,7 +670,22 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
     final path = _audioPath;
     if (path == null) return;
     try {
+      final key = _analysis == null ? path : _historyKey(_analysis!);
+      if (_playingKey == key && _playState == PlayerState.playing) {
+        await _player.pause();
+        return;
+      }
+      if (_playingKey == key && _playState == PlayerState.paused) {
+        await _player.resume();
+        return;
+      }
       await _player.stop();
+      if (!mounted) return;
+      setState(() {
+        _playingKey = key;
+        _position = Duration.zero;
+        _duration = Duration.zero;
+      });
       await _player.play(DeviceFileSource(path));
     } catch (_) {
       if (mounted) _showToast('Could not play audio.');
@@ -596,106 +789,100 @@ class _CryAnalyzerScreenState extends State<CryAnalyzerScreen>
                             const SizedBox(height: 14),
                             _AudioControlsRow(
                               state: _state,
+                              playing:
+                                  _playState == PlayerState.playing &&
+                                  _playingKey ==
+                                      (_analysis == null
+                                          ? _audioPath
+                                          : _historyKey(_analysis!)),
                               onStop: _handleMicTap,
                               onPlay: _handlePlay,
                               onDelete: _handleDelete,
                             ),
                           ],
-                          if (_state == _AnalyzerState.idle ||
-                              _state == _AnalyzerState.error) ...[
-                            const SizedBox(height: 16),
-                            _UploadCard(enabled: !isBusy, onTap: _handleUpload),
-                          ],
-                          AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 400),
-                            child: _state == _AnalyzerState.resultReady
-                                ? Column(
-                                    key: const ValueKey('result'),
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.stretch,
-                                    children: [
-                                      const SizedBox(height: 22),
-                                      const _AnalysisResultCard(),
-                                      const SizedBox(height: 22),
-                                      _SectionHeading(
-                                        title: 'Recommended Actions',
-                                      ),
-                                      const SizedBox(height: 10),
-                                      _RecommendedActionsGrid(
-                                        onTap: _showToast,
-                                      ),
-                                    ],
-                                  )
-                                : const SizedBox(key: ValueKey('no-result')),
+                          const SizedBox(height: 16),
+                          _UploadCard(
+                            enabled:
+                                !isBusy &&
+                                !_savingAudio &&
+                                !_deletingAudio &&
+                                trackerReady,
+                            onTap: _handleUpload,
                           ),
+                          const SizedBox(height: 14),
+                          const Text(
+                            'Unvalidated model: results performed poorly for tiredness, discomfort and belly pain. Scores are sound-pattern matches, not medical probabilities.',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: AuthPalette.textDark,
+                            ),
+                          ),
+                          if (_savingAudio)
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 12),
+                              child: LinearProgressIndicator(),
+                            ),
+                          if (_analysis != null) ...[
+                            const SizedBox(height: 16),
+                            CryAnalysisResult(entry: _analysis!),
+                          ],
                           const SizedBox(height: 26),
                           _SectionHeading(title: 'Recent History'),
                           const SizedBox(height: 10),
                           Text('Recordings for ${BabyProfileStore.name}'),
-                          const Text(
-                            'Internal testing only. Model scores are unreliable, not probabilities of baby needs. Recordings are limited to 30 seconds.',
-                          ),
                           if (_state == _AnalyzerState.audioReady)
                             TextButton(
                               onPressed: _savingAudio ? null : _saveAudio,
                               child: Text(
                                 _savingAudio
-                                    ? 'Saving…'
-                                    : 'Save / retry saving recording',
+                                    ? 'Analysing…'
+                                    : 'Analyse and save recording',
                               ),
                             ),
                           if (!trackerReady) const LinearProgressIndicator(),
-                          if (_analysis != null)
-                            _ExperimentalCryResult(entry: _analysis!),
-                          if (trackerReady && _recordings.isEmpty)
-                            const Text('No saved recordings yet.'),
-                          for (final entry in _recordings)
-                            ListTile(
-                              title: Text(
-                                entry['result'] as String? ??
-                                    'Analysis unavailable',
-                              ),
-                              subtitle: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(entry['time'] as String? ?? ''),
-                                  if (entry['mode'] != null)
-                                    TextButton(
-                                      onPressed: () => showDialog<void>(
-                                        context: context,
-                                        builder: (context) => AlertDialog(
-                                          title: const Text('Saved analysis'),
-                                          content: SingleChildScrollView(
-                                            child: _ExperimentalCryResult(
-                                              entry: entry,
-                                            ),
-                                          ),
-                                          actions: [
-                                            TextButton(
-                                              onPressed: () =>
-                                                  Navigator.pop(context),
-                                              child: const Text('Close'),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      child: const Text(
-                                        'View experimental scores',
-                                      ),
-                                    ),
-                                ],
-                              ),
-                              leading: IconButton(
-                                icon: const Icon(Icons.play_arrow),
-                                onPressed: () => _playSaved(entry),
-                              ),
-                              trailing: IconButton(
-                                icon: const Icon(Icons.delete_outline),
-                                onPressed: _savingAudio
-                                    ? null
-                                    : () => _deleteSaved(entry),
+                          if (_analysisError != null)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              child: Text(
+                                _analysisError!,
+                                style: TextStyle(
+                                  color: Theme.of(context).colorScheme.error,
+                                ),
                               ),
                             ),
+                          if (trackerReady && _recordings.isEmpty)
+                            const Text('No saved recordings yet.'),
+                          for (final entry in CryHistoryRecords.sorted(
+                            _recordings,
+                          ).take(3))
+                            CryRecordingCard(
+                              key: ValueKey(CryHistoryRecords.key(entry)),
+                              entry: entry,
+                              active: _playingKey == _historyKey(entry),
+                              playing:
+                                  _playingKey == _historyKey(entry) &&
+                                  _playState == PlayerState.playing,
+                              position: _position,
+                              playbackDuration: _duration,
+                              onPlay: _savingAudio || _deletingAudio || isBusy
+                                  ? null
+                                  : () => _playSaved(entry),
+                              onDelete: _savingAudio || _deletingAudio || isBusy
+                                  ? null
+                                  : () => _deleteSaved(entry),
+                            ),
+                          const SizedBox(height: 12),
+                          OutlinedButton.icon(
+                            onPressed:
+                                isBusy ||
+                                    _savingAudio ||
+                                    _deletingAudio ||
+                                    !trackerReady
+                                ? null
+                                : _openHistory,
+                            icon: const Icon(Icons.history_rounded),
+                            label: const Text('View all history'),
+                          ),
                         ],
                       ),
                     ),
@@ -1202,12 +1389,14 @@ class _WaveBar extends StatelessWidget {
 class _AudioControlsRow extends StatelessWidget {
   const _AudioControlsRow({
     required this.state,
+    required this.playing,
     required this.onStop,
     required this.onPlay,
     required this.onDelete,
   });
 
   final _AnalyzerState state;
+  final bool playing;
   final VoidCallback onStop;
   final VoidCallback onPlay;
   final VoidCallback onDelete;
@@ -1231,8 +1420,8 @@ class _AudioControlsRow extends StatelessWidget {
       children: [
         Expanded(
           child: AuthOutlineButton(
-            label: 'Play',
-            icon: Icons.play_arrow_rounded,
+            label: playing ? 'Pause' : 'Play',
+            icon: playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
             accent: AuthPalette.powderBlue,
             isLoading: false,
             onPressed: canInteract ? onPlay : null,
@@ -1296,7 +1485,7 @@ class _UploadCard extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      'Supported formats: wav, mp3, m4a',
+                      'WAV, MP3, M4A, OGG · up to 2 MB / 30 seconds',
                       style: GoogleFonts.nunito(
                         fontSize: 12,
                         color: AuthPalette.textMuted,
@@ -1311,589 +1500,6 @@ class _UploadCard extends StatelessWidget {
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _AnalysisResultCard extends StatelessWidget {
-  const _AnalysisResultCard();
-
-  static const _breakdown = <_ConfidenceEntry>[
-    _ConfidenceEntry(
-      label: 'Hungry',
-      percent: 86,
-      color: AuthPalette.softCoral,
-    ),
-    _ConfidenceEntry(
-      label: 'Tired',
-      percent: 10,
-      color: AuthPalette.powderBlue,
-    ),
-    _ConfidenceEntry(
-      label: 'Discomfort',
-      percent: 4,
-      color: AuthPalette.lavenderMist,
-    ),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return AuthCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: AuthPalette.softCoral.withValues(alpha: 0.28),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.local_drink_rounded,
-                  color: AuthPalette.textDark,
-                  size: 26,
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Likely reason',
-                      style: GoogleFonts.nunito(
-                        fontSize: 12,
-                        color: AuthPalette.textMuted,
-                      ),
-                    ),
-                    Text(
-                      'Hungry',
-                      style: GoogleFonts.quicksand(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                        color: AuthPalette.textDark,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: AuthPalette.mint.withValues(alpha: 0.3),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Text(
-                  '86%',
-                  style: GoogleFonts.nunito(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                    color: AuthPalette.textDark,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 18),
-          for (final entry in _breakdown) ...[
-            _ConfidenceRow(entry: entry),
-            const SizedBox(height: 10),
-          ],
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              const Icon(
-                Icons.shield_outlined,
-                size: 14,
-                color: AuthPalette.textMuted,
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  'This is a gentle guide, not a diagnosis. Trust your instincts.',
-                  style: GoogleFonts.nunito(
-                    fontSize: 11,
-                    color: AuthPalette.textMuted,
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ConfidenceEntry {
-  const _ConfidenceEntry({
-    required this.label,
-    required this.percent,
-    required this.color,
-  });
-
-  final String label;
-  final int percent;
-  final Color color;
-}
-
-class _ConfidenceRow extends StatelessWidget {
-  const _ConfidenceRow({required this.entry});
-
-  final _ConfidenceEntry entry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                entry.label,
-                style: GoogleFonts.nunito(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: AuthPalette.textDark,
-                ),
-              ),
-            ),
-            Text(
-              '${entry.percent}%',
-              style: GoogleFonts.nunito(
-                fontSize: 12.5,
-                fontWeight: FontWeight.w800,
-                color: AuthPalette.textMuted,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 5),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: Stack(
-            children: [
-              Container(
-                height: 9,
-                color: AuthPalette.lavenderMist.withValues(alpha: 0.25),
-              ),
-              TweenAnimationBuilder<double>(
-                tween: Tween(begin: 0, end: entry.percent / 100),
-                duration: const Duration(milliseconds: 800),
-                curve: Curves.easeOutCubic,
-                builder: (context, value, child) {
-                  return FractionallySizedBox(
-                    widthFactor: value,
-                    child: Container(height: 9, color: entry.color),
-                  );
-                },
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _RecommendedActionsGrid extends StatelessWidget {
-  const _RecommendedActionsGrid({required this.onTap});
-
-  final ValueChanged<String> onTap;
-
-  static const _actions = <_RecommendedAction>[
-    _RecommendedAction(
-      label: 'Offer feeding',
-      icon: Icons.local_drink_rounded,
-      color: AuthPalette.powderBlue,
-    ),
-    _RecommendedAction(
-      label: 'Burp baby',
-      icon: Icons.air_rounded,
-      color: AuthPalette.mint,
-    ),
-    _RecommendedAction(
-      label: 'Check diaper',
-      icon: Icons.child_care_rounded,
-      color: AuthPalette.lavenderMist,
-    ),
-    _RecommendedAction(
-      label: 'Try soothing',
-      icon: Icons.spa_rounded,
-      color: AuthPalette.softCoral,
-    ),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: _actions.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 12,
-        childAspectRatio: 2.6,
-      ),
-      itemBuilder: (context, index) {
-        final action = _actions[index];
-        return _RecommendedActionTile(
-          action: action,
-          onTap: () => onTap('Marked "${action.label}" as tried 💛'),
-        );
-      },
-    );
-  }
-}
-
-class _RecommendedAction {
-  const _RecommendedAction({
-    required this.label,
-    required this.icon,
-    required this.color,
-  });
-
-  final String label;
-  final IconData icon;
-  final Color color;
-}
-
-class _RecommendedActionTile extends StatefulWidget {
-  const _RecommendedActionTile({required this.action, required this.onTap});
-
-  final _RecommendedAction action;
-  final VoidCallback onTap;
-
-  @override
-  State<_RecommendedActionTile> createState() => _RecommendedActionTileState();
-}
-
-class _RecommendedActionTileState extends State<_RecommendedActionTile> {
-  bool _pressed = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: (_) => setState(() => _pressed = true),
-      onTapCancel: () => setState(() => _pressed = false),
-      onTapUp: (_) => setState(() => _pressed = false),
-      onTap: widget.onTap,
-      child: AnimatedScale(
-        scale: _pressed ? 0.95 : 1.0,
-        duration: const Duration(milliseconds: 120),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.9),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: AuthPalette.lavenderMist.withValues(alpha: 0.4),
-            ),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: widget.action.color.withValues(alpha: 0.32),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  widget.action.icon,
-                  size: 17,
-                  color: AuthPalette.textDark,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  widget.action.label,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.nunito(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w700,
-                    color: AuthPalette.textDark,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ExperimentalCryResult extends StatelessWidget {
-  const _ExperimentalCryResult({required this.entry});
-  final Map<String, dynamic> entry;
-  @override
-  Widget build(BuildContext context) {
-    final scores = entry['scores'] as Map?;
-    final alternatives = entry['alternatives'] as List? ?? [];
-    return AuthCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            entry['result'] as String? ?? 'Analysis unavailable',
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
-          Text(entry['explanation'] as String? ?? ''),
-          if (scores != null) ...[
-            const SizedBox(height: 10),
-            const Text('Experimental model scores — NOT medical confidence'),
-            for (final score in scores.entries)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '${score.key.toString().replaceAll('_', ' ')}: ${score.value}%',
-                    ),
-                    LinearProgressIndicator(
-                      value: ((score.value as num).toDouble() / 100).clamp(
-                        0,
-                        1,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-          ],
-          const SizedBox(height: 10),
-          Text(entry['tip'] as String? ?? ''),
-          for (final alternative in alternatives.skip(1)) ...[
-            const SizedBox(height: 8),
-            Text(
-              'Other pattern: ${alternative['label'].toString().replaceAll('_', ' ')} (${alternative['score']}%)',
-            ),
-            Text(alternative['tip'] as String? ?? ''),
-          ],
-          const SizedBox(height: 12),
-          Text(
-            entry['warning'] as String? ?? '',
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
-          const Text('General comfort guidance: NHS — Soothing a crying baby'),
-        ],
-      ),
-    );
-  }
-}
-
-class _HistoryEntry {
-  const _HistoryEntry({
-    required this.result,
-    required this.confidence,
-    required this.time,
-  });
-
-  final String result;
-  final int confidence;
-  final String time;
-}
-
-class _HistoryCard extends StatelessWidget {
-  const _HistoryCard({required this.entries});
-
-  final List<_HistoryEntry> entries;
-
-  @override
-  Widget build(BuildContext context) {
-    return AuthCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (var i = 0; i < entries.length; i++) ...[
-            _HistoryTile(entry: entries[i]),
-            if (i != entries.length - 1)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Divider(
-                  color: AuthPalette.lavenderMist.withValues(alpha: 0.4),
-                  height: 1,
-                ),
-              ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _HistoryTile extends StatelessWidget {
-  const _HistoryTile({required this.entry});
-
-  final _HistoryEntry entry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Row(
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              color: AuthPalette.softCoral.withValues(alpha: 0.25),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.graphic_eq_rounded,
-              size: 18,
-              color: AuthPalette.textDark,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '${entry.result} • ${entry.confidence}%',
-                  style: GoogleFonts.nunito(
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w700,
-                    color: AuthPalette.textDark,
-                  ),
-                ),
-                Text(
-                  entry.time,
-                  style: GoogleFonts.nunito(
-                    fontSize: 12,
-                    color: AuthPalette.textMuted,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _HowItWorksSheet extends StatelessWidget {
-  const _HowItWorksSheet();
-
-  static const _steps = <(IconData, String)>[
-    (
-      Icons.mic_rounded,
-      "We listen to the pattern and rhythm of your baby's cry.",
-    ),
-    (
-      Icons.psychology_alt_rounded,
-      'The sound is compared against thousands of known cry patterns.',
-    ),
-    (
-      Icons.lightbulb_outline_rounded,
-      'We suggest the most likely reason — gently, and never as a diagnosis.',
-    ),
-    (
-      Icons.favorite_outline_rounded,
-      'Always trust your instincts, and check with a pediatrician if you\'re concerned.',
-    ),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: Container(
-        decoration: const BoxDecoration(
-          color: AuthPalette.warmCream,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-        ),
-        padding: const EdgeInsets.fromLTRB(22, 12, 22, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AuthPalette.lavenderMist,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const SizedBox(height: 18),
-            Text(
-              'How Cry Analysis Works',
-              textAlign: TextAlign.center,
-              style: GoogleFonts.quicksand(
-                fontSize: 19,
-                fontWeight: FontWeight.w700,
-                color: AuthPalette.textDark,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'A gentle, science-informed guide — never a substitute for medical advice.',
-              textAlign: TextAlign.center,
-              style: GoogleFonts.nunito(
-                fontSize: 13,
-                color: AuthPalette.textMuted,
-              ),
-            ),
-            const SizedBox(height: 18),
-            for (final (icon, text) in _steps)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      width: 36,
-                      height: 36,
-                      decoration: BoxDecoration(
-                        color: AuthPalette.powderBlue.withValues(alpha: 0.3),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(icon, size: 18, color: AuthPalette.textDark),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Text(
-                          text,
-                          style: GoogleFonts.nunito(
-                            fontSize: 13.5,
-                            color: AuthPalette.textDark,
-                            height: 1.35,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            const SizedBox(height: 10),
-            AuthPrimaryButton(
-              label: 'Got it',
-              isLoading: false,
-              onPressed: () => Navigator.of(context).pop(),
-            ),
-          ],
         ),
       ),
     );

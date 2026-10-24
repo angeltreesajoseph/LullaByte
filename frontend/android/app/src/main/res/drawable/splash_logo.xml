@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Relative bounds remain safe when the device scales/masks the launch icon. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:inset="24%">
+    <bitmap android:src="@drawable/lullabyte_emblem" android:gravity="fill" />
+</inset>

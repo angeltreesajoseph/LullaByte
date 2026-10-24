@@ -1,0 +1,51 @@
+workflows:
+  ios-testflight-build:
+    name: LullaByte iOS - signed IPA preparation
+    instance_type: mac_mini_m2
+    max_build_duration: 90
+    working_directory: frontend
+    integrations:
+      app_store_connect: lullabyte-apple
+    environment:
+      flutter: 3.44.6
+      xcode: latest
+      cocoapods: default
+      groups:
+        - ios_secrets
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.lullabyte.babycare
+    scripts:
+      - name: Verify Apple toolchain and restore Firebase configuration
+        script: |
+          set -euo pipefail
+          xcodebuild -version
+          python3 ../scripts/prepare_ios_build.py
+      - name: Prepare dependencies
+        script: |
+          set -euo pipefail
+          flutter config --no-enable-swift-package-manager
+          flutter pub get
+          cd ios
+          pod install
+      - name: Generate branded iOS app icons
+        script: swift ../scripts/prepare_ios_icons.swift
+      - name: Run startup and account regression tests
+        script: |
+          flutter test test/session_restore_test.dart test/widget_test.dart test/account_profile_test.dart
+      - name: Apply uploaded App Store signing profiles
+        script: xcode-project use-profiles
+      - name: Build signed IPA
+        script: |
+          set -euo pipefail
+          flutter build ipa --release \
+            --build-name=1.0 \
+            --build-number="$PROJECT_BUILD_NUMBER" \
+            --dart-define=API_BASE_URL=https://lullabyte-api.onrender.com/api/v1 \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - frontend/build/ios/ipa/*.ipa
+      - frontend/build/ios/archive/*.xcarchive
+      - /tmp/xcodebuild_logs/*.log
+    # No triggers or publishing: starting builds, uploading to TestFlight and
+    # App Store submission remain explicit actions after setup and validation.

@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/di/providers.dart';
-import '../data/repositories/simulated_ai_response_service.dart';
+import '../data/repositories/gemini_response_service.dart';
 import '../domain/entities/assistant_mode.dart';
 import '../domain/repositories/ai_response_service.dart';
 import '../domain/usecases/local_response_engine.dart';
@@ -20,10 +20,9 @@ final assistantConnectivityProvider = StreamProvider<bool>((ref) async* {
 /// device has a network connection, Offline Helper otherwise. Defaults to
 /// offline while the first connectivity check is still in flight.
 final assistantModeProvider = Provider<AssistantMode>((ref) {
-  final isOnline = ref.watch(assistantConnectivityProvider).maybeWhen(
-        data: (value) => value,
-        orElse: () => false,
-      );
+  final isOnline = ref
+      .watch(assistantConnectivityProvider)
+      .maybeWhen(data: (value) => value, orElse: () => false);
   return isOnline ? AssistantMode.online : AssistantMode.offline;
 });
 
@@ -31,9 +30,7 @@ final localResponseEngineProvider = Provider<LocalResponseEngine>((ref) {
   return const LocalResponseEngine();
 });
 
-/// Bound to [SimulatedAiResponseService] today. Swap this binding for a
-/// real network-backed implementation (see `AiResponseService`'s doc
-/// comment) when one exists — nothing else in the chat feature changes.
+/// Authenticated backend proxy; the Gemini key never enters the Flutter app.
 final aiResponseServiceProvider = Provider<AiResponseService>((ref) {
-  return const SimulatedAiResponseService();
+  return const GeminiResponseService();
 });

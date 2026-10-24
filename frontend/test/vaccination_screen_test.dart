@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lullabyte/features/baby_management/application/baby_profile_store.dart';
 import 'package:lullabyte/features/vaccination/presentation/screens/vaccination_screen.dart';
+import 'package:lullabyte/features/vaccination/presentation/widgets/vaccination_cards.dart';
 
 void main() {
   Future<List<List<Map<String, dynamic>>>> open(
@@ -76,6 +77,9 @@ void main() {
   ) async {
     final writes = await open(tester);
     final check = find.byType(Checkbox).first;
+    final selectedId = tester
+        .widget<VaccinationDoseCard>(find.byType(VaccinationDoseCard).first)
+        .entry['id'];
     await tester.ensureVisible(check);
     await tester.tap(check);
     await tester.pumpAndSettle();
@@ -84,6 +88,18 @@ void main() {
     expect(writes.last.first['done'], true);
     final actual = DateTime.parse(writes.last.first['received_date']);
     expect(DateUtils.isSameDay(actual, DateTime.now()), true);
+    final matching = tester
+        .widgetList<VaccinationDoseCard>(find.byType(VaccinationDoseCard))
+        .where((c) => c.entry['id'] == selectedId)
+        .toList();
+    expect(matching, hasLength(1));
+    expect(matching.single.entry['done'], true);
+    expect(
+      tester
+          .widget<VaccinationDoseCard>(find.byType(VaccinationDoseCard).first)
+          .entry['done'],
+      true,
+    );
     expect(tester.widget<Checkbox>(find.byType(Checkbox).first).value, true);
     await Scrollable.ensureVisible(
       tester.element(find.byType(Checkbox).first),

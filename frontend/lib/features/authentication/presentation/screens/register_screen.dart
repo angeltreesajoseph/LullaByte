@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../family_sharing/application/shared_care_connection.dart';
 import 'package:flutter/gestures.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -26,7 +27,8 @@ class RegisterScreen extends StatefulWidget {
   State<RegisterScreen> createState() => _RegisterScreenState();
 }
 
-class _RegisterScreenState extends State<RegisterScreen> with SingleTickerProviderStateMixin {
+class _RegisterScreenState extends State<RegisterScreen>
+    with SingleTickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
   final _fullNameController = TextEditingController();
   final _emailController = TextEditingController();
@@ -54,11 +56,17 @@ class _RegisterScreenState extends State<RegisterScreen> with SingleTickerProvid
       vsync: this,
       duration: const Duration(milliseconds: 600),
     );
-    _entranceFade = CurvedAnimation(parent: _entranceController, curve: Curves.easeOut);
-    _entranceSlide = Tween<Offset>(
-      begin: const Offset(0, 0.05),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _entranceController, curve: Curves.easeOutCubic));
+    _entranceFade = CurvedAnimation(
+      parent: _entranceController,
+      curve: Curves.easeOut,
+    );
+    _entranceSlide =
+        Tween<Offset>(begin: const Offset(0, 0.05), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _entranceController,
+            curve: Curves.easeOutCubic,
+          ),
+        );
     _entranceController.forward();
   }
 
@@ -96,7 +104,8 @@ class _RegisterScreenState extends State<RegisterScreen> with SingleTickerProvid
     if (password.length < 8) return 'Use at least 8 characters';
     final hasLetter = RegExp(r'[A-Za-z]').hasMatch(password);
     final hasDigit = RegExp(r'[0-9]').hasMatch(password);
-    if (!hasLetter || !hasDigit) return 'Include at least one letter and one number';
+    if (!hasLetter || !hasDigit)
+      return 'Include at least one letter and one number';
     return null;
   }
 
@@ -135,11 +144,22 @@ class _RegisterScreenState extends State<RegisterScreen> with SingleTickerProvid
       // not yet wired to this screen). Field-level validation above is
       // fully functional. Mock-only — no Firebase/backend integration.
       if (method != _RegisterMethod.email) {
-        throw FirebaseAuthException(code: 'unsupported-provider', message: 'Email registration is currently available.');
+        throw FirebaseAuthException(
+          code: 'unsupported-provider',
+          message: 'Email registration is currently available.',
+        );
       }
-      await FirebaseAuthService().register(_emailController.text, _passwordController.text, _fullNameController.text);
+      await FirebaseAuthService().register(
+        _emailController.text,
+        _passwordController.text,
+        _fullNameController.text,
+      );
       if (!mounted) return;
-      context.go(RoutePaths.babyRegistration);
+      context.go(
+        PendingCareInvitation.id == null
+            ? RoutePaths.babyRegistration
+            : RoutePaths.familySharing,
+      );
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -164,7 +184,10 @@ class _RegisterScreenState extends State<RegisterScreen> with SingleTickerProvid
         title: Text(title),
         content: SingleChildScrollView(child: Text(body)),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
         ],
       ),
     );
@@ -219,12 +242,16 @@ class _RegisterScreenState extends State<RegisterScreen> with SingleTickerProvid
                                 child: AuthCard(
                                   child: Form(
                                     key: _formKey,
-                                    autovalidateMode: AutovalidateMode.onUserInteraction,
+                                    autovalidateMode:
+                                        AutovalidateMode.onUserInteraction,
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
                                       children: [
                                         if (_errorMessage != null) ...[
-                                          AuthErrorBanner(message: _errorMessage!),
+                                          AuthErrorBanner(
+                                            message: _errorMessage!,
+                                          ),
                                           const SizedBox(height: 16),
                                         ],
                                         AuthTextField(
@@ -232,7 +259,8 @@ class _RegisterScreenState extends State<RegisterScreen> with SingleTickerProvid
                                           label: 'Full Name',
                                           hintText: 'e.g. Priya Sharma',
                                           keyboardType: TextInputType.name,
-                                          textCapitalization: TextCapitalization.words,
+                                          textCapitalization:
+                                              TextCapitalization.words,
                                           prefixIcon: Icons.badge_outlined,
                                           validator: _validateFullName,
                                           enabled: !_isSubmitting,
@@ -242,8 +270,10 @@ class _RegisterScreenState extends State<RegisterScreen> with SingleTickerProvid
                                           controller: _emailController,
                                           label: 'Email',
                                           hintText: 'you@example.com',
-                                          keyboardType: TextInputType.emailAddress,
-                                          prefixIcon: Icons.mail_outline_rounded,
+                                          keyboardType:
+                                              TextInputType.emailAddress,
+                                          prefixIcon:
+                                              Icons.mail_outline_rounded,
                                           validator: _validateEmail,
                                           enabled: !_isSubmitting,
                                         ),
@@ -255,17 +285,27 @@ class _RegisterScreenState extends State<RegisterScreen> with SingleTickerProvid
                                           enabled: !_isSubmitting,
                                           validator: _validatePassword,
                                           onToggleObscure: () {
-                                            setState(() => _obscurePassword = !_obscurePassword);
+                                            setState(
+                                              () => _obscurePassword =
+                                                  !_obscurePassword,
+                                            );
                                           },
-                                          onChanged: (value) => setState(() => _password = value),
+                                          onChanged: (value) =>
+                                              setState(() => _password = value),
                                           onSubmitted: (_) =>
-                                              FocusScope.of(context)
-                                                  .requestFocus(_confirmPasswordFocusNode),
+                                              FocusScope.of(
+                                                context,
+                                              ).requestFocus(
+                                                _confirmPasswordFocusNode,
+                                              ),
                                         ),
-                                        _PasswordStrengthMeter(password: _password),
+                                        _PasswordStrengthMeter(
+                                          password: _password,
+                                        ),
                                         const SizedBox(height: 6),
                                         AuthPasswordField(
-                                          controller: _confirmPasswordController,
+                                          controller:
+                                              _confirmPasswordController,
                                           focusNode: _confirmPasswordFocusNode,
                                           label: 'Confirm Password',
                                           obscureText: _obscureConfirmPassword,
@@ -277,7 +317,8 @@ class _RegisterScreenState extends State<RegisterScreen> with SingleTickerProvid
                                                   !_obscureConfirmPassword,
                                             );
                                           },
-                                          onSubmitted: (_) => _handleEmailRegister(),
+                                          onSubmitted: (_) =>
+                                              _handleEmailRegister(),
                                         ),
                                         const SizedBox(height: 6),
                                         AuthCheckboxRow(
@@ -286,7 +327,8 @@ class _RegisterScreenState extends State<RegisterScreen> with SingleTickerProvid
                                           onChanged: (value) {
                                             setState(() {
                                               _acceptedTerms = value;
-                                              if (value) _showTermsError = false;
+                                              if (value)
+                                                _showTermsError = false;
                                             });
                                           },
                                           label: Text.rich(
@@ -296,30 +338,37 @@ class _RegisterScreenState extends State<RegisterScreen> with SingleTickerProvid
                                                 color: AuthPalette.textDark,
                                               ),
                                               children: [
-                                                const TextSpan(text: 'I agree to the '),
+                                                const TextSpan(
+                                                  text: 'I agree to the ',
+                                                ),
                                                 TextSpan(
                                                   text: 'Terms',
                                                   recognizer: TapGestureRecognizer()
-                                                    ..onTap = () => _showLegalDocument(
+                                                    ..onTap = () =>
+                                                        _showLegalDocument(
                                                           'Terms and Conditions',
                                                           _termsText,
                                                         ),
                                                   style: GoogleFonts.nunito(
                                                     fontWeight: FontWeight.w800,
-                                                    color: AuthPalette.softCoral,
+                                                    color:
+                                                        AuthPalette.softCoral,
                                                   ),
                                                 ),
                                                 const TextSpan(text: ' and '),
                                                 TextSpan(
                                                   text: 'Privacy Policy',
-                                                  recognizer: TapGestureRecognizer()
-                                                    ..onTap = () => _showLegalDocument(
-                                                          'Privacy Policy',
-                                                          _privacyText,
-                                                        ),
+                                                  recognizer:
+                                                      TapGestureRecognizer()
+                                                        ..onTap = () =>
+                                                            _showLegalDocument(
+                                                              'Privacy Policy',
+                                                              _privacyText,
+                                                            ),
                                                   style: GoogleFonts.nunito(
                                                     fontWeight: FontWeight.w800,
-                                                    color: AuthPalette.softCoral,
+                                                    color:
+                                                        AuthPalette.softCoral,
                                                   ),
                                                 ),
                                               ],
@@ -328,7 +377,10 @@ class _RegisterScreenState extends State<RegisterScreen> with SingleTickerProvid
                                         ),
                                         if (_showTermsError)
                                           Padding(
-                                            padding: const EdgeInsets.only(left: 34, bottom: 4),
+                                            padding: const EdgeInsets.only(
+                                              left: 34,
+                                              bottom: 4,
+                                            ),
                                             child: Text(
                                               'Please accept the Terms & Privacy Policy',
                                               style: GoogleFonts.nunito(
@@ -341,13 +393,18 @@ class _RegisterScreenState extends State<RegisterScreen> with SingleTickerProvid
                                         const SizedBox(height: 12),
                                         AuthPrimaryButton(
                                           label: 'Create Account',
-                                          isLoading: _isSubmitting &&
-                                              _activeMethod == _RegisterMethod.email,
-                                          onPressed: _isSubmitting ? null : _handleEmailRegister,
+                                          isLoading:
+                                              _isSubmitting &&
+                                              _activeMethod ==
+                                                  _RegisterMethod.email,
+                                          onPressed: _isSubmitting
+                                              ? null
+                                              : _handleEmailRegister,
                                         ),
                                         const SizedBox(height: 20),
                                         Row(
-                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
                                           children: [
                                             Text(
                                               'Already have an account? ',
@@ -359,7 +416,9 @@ class _RegisterScreenState extends State<RegisterScreen> with SingleTickerProvid
                                             AuthTextLink(
                                               label: 'Log In',
                                               bold: true,
-                                              onPressed: _isSubmitting ? null : _goToLogin,
+                                              onPressed: _isSubmitting
+                                                  ? null
+                                                  : _goToLogin,
                                             ),
                                           ],
                                         ),
@@ -386,9 +445,11 @@ class _RegisterScreenState extends State<RegisterScreen> with SingleTickerProvid
 
 enum _RegisterMethod { email }
 
-const _termsText = '''By creating an account, you agree to use LullaByte responsibly and provide accurate information. LullaByte provides general infant-care information and is not a substitute for a qualified medical professional or emergency services. You are responsible for protecting your account credentials.''';
+const _termsText =
+    '''By creating an account, you agree to use LullaByte responsibly and provide accurate information. LullaByte provides general infant-care information and is not a substitute for a qualified medical professional or emergency services. You are responsible for protecting your account credentials.''';
 
-const _privacyText = '''LullaByte uses your account and baby-care information to provide the app's features, sync data, and improve reliability. We do not store your password in the app. You may request account or data deletion through support. Do not enter information you are not authorized to share.''';
+const _privacyText =
+    '''LullaByte uses your account and baby-care information to provide the app's features, sync data, and improve reliability. We do not store your password in the app. You may request account or data deletion through support. Do not enter information you are not authorized to share.''';
 
 /// Live password strength indicator: four segments filling from Weak
 /// (coral) through Strong (mint) based on length and character variety.
