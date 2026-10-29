@@ -3,7 +3,13 @@
 Bundle ID: `com.lullabyte.babycare`. Apple team: `9KKSGHSNG4`.
 The native iOS scaffold is now in `frontend/ios`. Android files are unchanged.
 The workflow at repository root is manual and produces an IPA; it does not upload
-or submit an app automatically. No paid build has been started.
+or submit an app automatically.
+
+The first cloud attempt stopped in the Swift icon-generation process (exit 133),
+before compiling the IPA. Icon packaging now uses Python 3.12 and pinned Pillow
+instead of Swift/AppKit, preserving the emblem's aspect ratio and producing opaque
+RGB PNGs. Push this fix before retrying; existing Firebase and signing setup can
+remain in place. A successful macOS build is still unverified.
 
 ## Required account setup
 

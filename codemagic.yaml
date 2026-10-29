@@ -8,6 +8,7 @@ workflows:
       app_store_connect: lullabyte-apple
     environment:
       flutter: 3.44.6
+      python: 3.12
       xcode: latest
       cocoapods: default
       groups:
@@ -29,7 +30,10 @@ workflows:
           cd ios
           pod install
       - name: Generate branded iOS app icons
-        script: swift ../scripts/prepare_ios_icons.swift
+        script: |
+          set -euo pipefail
+          python3 -m pip install -r ../scripts/requirements-ios-icons.txt
+          python3 ../scripts/prepare_ios_icons.py
       - name: Run startup and account regression tests
         script: |
           flutter test test/session_restore_test.dart test/widget_test.dart test/account_profile_test.dart
