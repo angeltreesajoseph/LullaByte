@@ -9,7 +9,11 @@ The first cloud attempt stopped in the Swift icon-generation process (exit 133),
 before compiling the IPA. Icon packaging now uses the build image's Python and pinned Pillow
 instead of Swift/AppKit, preserving the emblem's aspect ratio and producing opaque
 RGB PNGs. Push this fix before retrying; existing Firebase and signing setup can
-remain in place. A successful macOS build is still unverified.
+remain in place. Cloud build 3 (commit `5e2aee9`) successfully exported a 50.7 MB
+IPA, but Codemagic reported no collected artifacts. The workflow now validates
+the exported app payload and copies the IPA to `$CM_BUILD_DIR/ios-artifacts`,
+with an absolute artifact pattern. Missing exports fail the build explicitly.
+Artifact collection with this change still needs a cloud retry.
 Python is invoked in a script, not an `environment.python` YAML field (unsupported
 by Codemagic). Pillow is installed in an isolated virtual environment.
 
@@ -56,7 +60,8 @@ TestFlight on a physical iPhone. Merely exporting an IPA does not establish read
 ## Known release blockers / unverified behavior
 
 - This Windows environment cannot compile Swift, install CocoaPods or verify signing.
-  No iOS build, upload, or device test has succeeded yet.
+  A cloud IPA build succeeded; artifact download, Apple upload and device testing
+  have not yet been verified. The build also flagged the default launch image.
 - The assistant's dictation/read-aloud and notification-settings MethodChannels are
   currently implemented **only on Android**. iOS native implementations remain work;
   do not advertise these as tested iPhone features.

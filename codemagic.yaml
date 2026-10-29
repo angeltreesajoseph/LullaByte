@@ -48,9 +48,13 @@ workflows:
             --build-number="$PROJECT_BUILD_NUMBER" \
             --dart-define=API_BASE_URL=https://lullabyte-api.onrender.com/api/v1 \
             --export-options-plist=/Users/builder/export_options.plist
+      - name: Verify and stage downloadable IPA
+        script: |
+          set -euo pipefail
+          python3 ../scripts/collect_ios_artifacts.py
     artifacts:
-      - frontend/build/ios/ipa/*.ipa
-      - frontend/build/ios/archive/*.xcarchive
+      - $CM_BUILD_DIR/ios-artifacts/*.ipa
+      - $CM_BUILD_DIR/frontend/build/ios/archive/*.xcarchive
       - /tmp/xcodebuild_logs/*.log
     # No triggers or publishing: starting builds, uploading to TestFlight and
     # App Store submission remain explicit actions after setup and validation.
