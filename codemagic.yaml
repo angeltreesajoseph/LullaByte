@@ -56,5 +56,10 @@ workflows:
       - $CM_BUILD_DIR/ios-artifacts/*.ipa
       - $CM_BUILD_DIR/frontend/build/ios/archive/*.xcarchive
       - /tmp/xcodebuild_logs/*.log
-    # No triggers or publishing: starting builds, uploading to TestFlight and
-    # App Store submission remain explicit actions after setup and validation.
+    # No triggers: builds/uploads start manually. Tester distribution and review
+    # submissions remain manual actions in App Store Connect.
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: false
+        submit_to_app_store: false
