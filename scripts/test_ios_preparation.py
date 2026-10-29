@@ -53,6 +53,8 @@ class IosPreparationTests(unittest.TestCase):
         self.assertIn('working_directory: frontend', workflow)
         self.assertIn('bundle_identifier: com.lullabyte.babycare', workflow)
         self.assertNotIn('\n    publishing:', workflow)
+        self.assertNotIn('\n      python:', workflow)
+        self.assertIn('python3 -m venv', workflow)
         icons = json.loads((ROOT / 'frontend/ios/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json').read_text())
         self.assertTrue(any(e['size'] == '1024x1024' for e in icons['images']))
 

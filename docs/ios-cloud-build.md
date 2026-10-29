@@ -6,10 +6,12 @@ The workflow at repository root is manual and produces an IPA; it does not uploa
 or submit an app automatically.
 
 The first cloud attempt stopped in the Swift icon-generation process (exit 133),
-before compiling the IPA. Icon packaging now uses Python 3.12 and pinned Pillow
+before compiling the IPA. Icon packaging now uses the build image's Python and pinned Pillow
 instead of Swift/AppKit, preserving the emblem's aspect ratio and producing opaque
 RGB PNGs. Push this fix before retrying; existing Firebase and signing setup can
 remain in place. A successful macOS build is still unverified.
+Python is invoked in a script, not an `environment.python` YAML field (unsupported
+by Codemagic). Pillow is installed in an isolated virtual environment.
 
 ## Required account setup
 
